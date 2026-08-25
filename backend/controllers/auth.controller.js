@@ -1,21 +1,21 @@
 // controllers/auth.controller.js
 
 // Importer les modules nécessaires
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const User = require('../models/user.model');
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const User = require("../models/user.model");
 
 // Génère un token JWT et le renvoie dans un cookie
 const generateTokenAndSetCookie = (userId, res) => {
   const token = jwt.sign({ userId }, process.env.JWT_SECRET, {
-    expiresIn: '7d',
+    expiresIn: "7d",
   });
 
   // Définir le cookie avec les options appropriées
-  res.cookie('token', token, {
+  res.cookie("token", token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 jours
   });
 };
@@ -27,7 +27,9 @@ exports.signup = async (req, res) => {
 
     const existingUser = await User.findOne({ $or: [{ email }, { username }] });
     if (existingUser) {
-      return res.status(400).json({ message: 'Cet email ou nom d\'utilisateur est déjà utilisé.' });
+      return res
+        .status(400)
+        .json({ message: "Cet email ou nom d'utilisateur est déjà utilisé." });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -48,7 +50,7 @@ exports.signup = async (req, res) => {
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Erreur serveur lors de l\'inscription.' });
+    res.status(500).json({ message: "Erreur serveur lors de l'inscription." });
   }
 };
 
@@ -59,12 +61,16 @@ exports.login = async (req, res) => {
 
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(400).json({ message: 'Email ou mot de passe incorrect.' });
+      return res
+        .status(400)
+        .json({ message: "Email ou mot de passe incorrect." });
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      return res.status(400).json({ message: 'Email ou mot de passe incorrect.' });
+      return res
+        .status(400)
+        .json({ message: "Email ou mot de passe incorrect." });
     }
 
     generateTokenAndSetCookie(user._id, res);
@@ -77,14 +83,18 @@ exports.login = async (req, res) => {
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Erreur serveur lors de la connexion.' });
+    res.status(500).json({ message: "Erreur serveur lors de la connexion." });
   }
 };
 
 // Déconnexion
 exports.logout = (req, res) => {
-  res.clearCookie('token');
-  res.status(200).json({ message: 'Déconnexion réussie.' });
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+  });
+  res.status(200).json({ message: "Déconnexion réussie." });
 };
 
 // Vérification de l'authentification
