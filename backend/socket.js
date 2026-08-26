@@ -52,4 +52,9 @@ io.on('connection', (socket) => {
   });
 });
 
-module.exports = { app, server, io, getReceiverSocketId };
+// 
+function getOnlineUserIds() {
+  return Object.keys(userSocketMap);
+}
+
+module.exports = { app, server, io, getReceiverSocketId, getOnlineUserIds };
