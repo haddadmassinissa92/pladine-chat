@@ -27,6 +27,9 @@ const userRoutes = require('./routes/user.route');
 const messageRoutes = require('./routes/message.route');
 const groupRoutes = require('./routes/group.route');
 
+
+app.disable('etag');
+
 // Configurer les middlewares
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:3000',
