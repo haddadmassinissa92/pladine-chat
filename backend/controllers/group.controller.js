@@ -24,11 +24,28 @@ exports.createGroup = async (req, res) => {
 // Récupérer les groupes de l'utilisateur connecté
 exports.getMyGroups = async (req, res) => {
   try {
+    const Message = require("../models/message.model");
+
     const groups = await Group.find({ members: req.user._id }).populate(
       "members",
       "username",
     );
-    res.status(200).json(groups);
+
+    const groupsWithLastMessage = await Promise.all(
+      groups.map(async (group) => {
+        const lastMessage = await Message.findOne({ group: group._id })
+          .sort({ createdAt: -1 })
+          .select("text image audio createdAt sender")
+          .populate("sender", "username");
+
+        return {
+          ...group.toObject(),
+          lastMessage: lastMessage || null,
+        };
+      }),
+    );
+
+    res.status(200).json(groupsWithLastMessage);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Erreur serveur." });
