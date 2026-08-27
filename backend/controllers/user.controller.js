@@ -1,15 +1,44 @@
-const User = require('../models/user.model');
+const User = require("../models/user.model");
 
 // Récupère tous les utilisateurs sauf celui qui fait la requête (pour la liste de contacts)
 exports.getUsersForSidebar = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
 
-    const users = await User.find({ _id: { $ne: loggedInUserId } }).select('-password');
+    const users = await User.find({ _id: { $ne: loggedInUserId } }).select(
+      "-password",
+    );
 
     res.status(200).json(users);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Erreur serveur.' });
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Met à jour la photo de profil de l'utilisateur connecté
+exports.updateProfile = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "Aucune image fournie." });
+    }
+
+    const base64File = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+    const uploadResponse = await cloudinary.uploader.upload(base64File, {
+      folder: "chat-app/avatars",
+    });
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { avatar: uploadResponse.secure_url },
+      { new: true },
+    ).select("-password");
+
+    res.status(200).json(updatedUser);
+  } catch (error) {
+    console.error(error);
+    res
+      .status(500)
+      .json({ message: "Erreur lors de la mise à jour du profil." });
   }
 };
