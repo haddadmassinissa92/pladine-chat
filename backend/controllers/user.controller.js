@@ -1,4 +1,5 @@
 const User = require("../models/user.model");
+const cloudinary = require('cloudinary').v2;
 
 // Récupère tous les utilisateurs sauf celui qui fait la requête (pour la liste de contacts)
 exports.getUsersForSidebar = async (req, res) => {
