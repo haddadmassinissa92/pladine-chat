@@ -125,7 +125,7 @@ exports.markMessagesAsRead = async (req, res) => {
     if (isGroup === "true") {
       await Message.updateMany(
         { group: id, sender: { $ne: myId }, status: { $ne: "read" } },
-        { status: "read" },
+        { status: "read", readAt: new Date() },
       );
 
       const Group = require("../models/group.model");
@@ -143,7 +143,7 @@ exports.markMessagesAsRead = async (req, res) => {
     } else {
       await Message.updateMany(
         { sender: id, receiver: myId, status: { $ne: "read" } },
-        { status: "read" },
+        { status: "read", readAt: new Date() },
       );
 
       const senderSocketId = getReceiverSocketId(id);

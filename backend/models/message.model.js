@@ -48,6 +48,11 @@ const messageSchema = new mongoose.Schema(
       default: "sent",
     },
 
+    readAt: {
+      type: Date,
+      default: null,
+    },
+
     // Indique si le message a été modifié
     edited: {
       type: Boolean,
