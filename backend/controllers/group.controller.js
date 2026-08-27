@@ -38,9 +38,16 @@ exports.getMyGroups = async (req, res) => {
           .select("text image audio createdAt sender")
           .populate("sender", "username");
 
+        const unreadCount = await Message.countDocuments({
+          group: group._id,
+          sender: { $ne: req.user._id },
+          status: { $ne: "read" },
+        });
+
         return {
           ...group.toObject(),
           lastMessage: lastMessage || null,
+          unreadCount,
         };
       }),
     );

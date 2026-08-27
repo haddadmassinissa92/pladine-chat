@@ -21,9 +21,16 @@ exports.getUsersForSidebar = async (req, res) => {
           .sort({ createdAt: -1 })
           .select('text image audio createdAt sender');
 
+                const unreadCount = await Message.countDocuments({
+          sender: user._id,
+          receiver: loggedInUserId,
+          status: { $ne: 'read' },
+        });
+
         return {
           ...user.toObject(),
           lastMessage: lastMessage || null,
+          unreadCount,
         };
       })
     );
