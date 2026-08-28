@@ -11,7 +11,8 @@ const {
     sendMessage, 
     markMessagesAsRead ,
     deleteMessage,
-    editMessage
+    editMessage,
+    reactToMessage
 } = require('../controllers/message.controller');
 
 // Création du routeur Express
@@ -23,6 +24,7 @@ router.post('/send/:id', protect, upload.single('image'), sendMessage);
 router.put('/read/:id', protect, markMessagesAsRead);
 router.delete('/:id', protect, deleteMessage);
 router.put('/:id', protect, editMessage);
+router.put('/react/:id', protect, reactToMessage);
 
 // Exportation du routeur pour l'utiliser dans d'autres parties de l'application
 module.exports = router;

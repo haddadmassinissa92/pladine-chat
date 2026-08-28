@@ -215,3 +215,57 @@ exports.editMessage = async (req, res) => {
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
+
+// Ajoute ou retire une réaction (emoji) sur un message
+exports.reactToMessage = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { emoji } = req.body;
+    const myId = req.user._id;
+
+    const message = await Message.findById(id);
+    if (!message) {
+      return res.status(404).json({ message: "Message introuvable." });
+    }
+
+    const existingIndex = message.reactions.findIndex(
+      (r) => r.user.toString() === myId.toString() && r.emoji === emoji,
+    );
+
+    if (existingIndex !== -1) {
+      // Déjà réagi avec cet emoji : on retire la réaction
+      message.reactions.splice(existingIndex, 1);
+    } else {
+      // Retire une éventuelle autre réaction de cet utilisateur, puis ajoute la nouvelle
+      message.reactions = message.reactions.filter(
+        (r) => r.user.toString() !== myId.toString(),
+      );
+      message.reactions.push({ emoji, user: myId });
+    }
+
+    await message.save();
+    await message.populate("reactions.user", "username");
+
+    const payload = {
+      messageId: message._id,
+      reactions: message.reactions,
+      groupId: message.group || null,
+    };
+
+    if (message.group) {
+      io.emit("messageReaction", payload);
+    } else {
+      const receiverSocketId = getReceiverSocketId(message.receiver.toString());
+      const senderSocketId = getReceiverSocketId(message.sender.toString());
+      if (receiverSocketId)
+        io.to(receiverSocketId).emit("messageReaction", payload);
+      if (senderSocketId)
+        io.to(senderSocketId).emit("messageReaction", payload);
+    }
+
+    res.status(200).json(message);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};

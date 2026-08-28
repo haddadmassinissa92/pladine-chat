@@ -19,6 +19,8 @@ const messageSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+
+    // creation d'un group
     group: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Group",
@@ -30,6 +32,7 @@ const messageSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // contenu pour un message audio
     audio: {
       type: String,
       default: "",
@@ -48,10 +51,23 @@ const messageSchema = new mongoose.Schema(
       default: "sent",
     },
 
+    // Indique l'heure dont un message precis a etais lu
     readAt: {
       type: Date,
       default: null,
     },
+
+    // Ajoute une reaction comme l'ajout d'un emoji pour un message
+    reactions: [
+      {
+        emoji: { type: String, required: true },
+        user: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: true,
+        },
+      },
+    ],
 
     // Indique si le message a été modifié
     edited: {
