@@ -10,30 +10,51 @@ const Message = require("../models/message.model");
 // Récupère l'historique des messages entre l'utilisateur connecté et un autre utilisateur
 const { getReceiverSocketId, io } = require("../socket");
 
-// Récupère l'historique des messages entre l'utilisateur connecté et un autre utilisateur
+// Nombre de messages chargés par page (premier chargement, puis à chaque remontée dans l'historique)
+const MESSAGES_PER_PAGE = 30;
+
+// Récupère les messages d'une conversation, avec pagination :
+// - sans le paramètre "before" : renvoie les MESSAGES_PER_PAGE derniers messages (les plus récents)
+// - avec "before" (date ISO) : renvoie les MESSAGES_PER_PAGE messages juste avant cette date
+// Dans les deux cas, la réponse est triée du plus ancien au plus récent, et indique
+// si d'autres messages plus anciens existent encore ("hasMore").
 exports.getMessages = async (req, res) => {
   try {
     const { id } = req.params;
-    const { isGroup } = req.query;
+    const { isGroup, before } = req.query;
     const myId = req.user._id;
 
-    let messages;
-    if (isGroup === "true") {
-      messages = await Message.find({ group: id })
-        .sort({ createdAt: 1 })
-        .populate("replyTo", "text");
-    } else {
-      messages = await Message.find({
-        $or: [
-          { sender: myId, receiver: id },
-          { sender: id, receiver: myId },
-        ],
-      })
-        .sort({ createdAt: 1 })
-        .populate("replyTo", "text");
-    }
+    // Condition de base : la conversation concernée (groupe ou privée)
+    const baseFilter =
+      isGroup === "true"
+        ? { group: id }
+        : {
+            $or: [
+              { sender: myId, receiver: id },
+              { sender: id, receiver: myId },
+            ],
+          };
 
-    res.status(200).json(messages);
+    // Si "before" est fourni, on ne prend que les messages plus anciens que cette date
+    const filter = before
+      ? { ...baseFilter, createdAt: { $lt: new Date(before) } }
+      : baseFilter;
+
+    // On récupère les messages les plus récents correspondant au filtre, triés du
+    // plus récent au plus ancien, limités à une page, puis on les remet dans l'ordre
+    // chronologique normal (du plus ancien au plus récent) pour l'affichage
+    const messagesDesc = await Message.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(MESSAGES_PER_PAGE)
+      .populate("replyTo", "text");
+
+    const messages = messagesDesc.reverse();
+
+    // S'il y a exactement autant de messages que la taille d'une page, il en reste
+    // probablement encore d'autres plus anciens à charger
+    const hasMore = messagesDesc.length === MESSAGES_PER_PAGE;
+
+    res.status(200).json({ messages, hasMore });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Erreur serveur." });
