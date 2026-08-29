@@ -4,8 +4,9 @@
 const cloudinary = require("cloudinary").v2;
 const ogs = require("open-graph-scraper");
 
-// Importation du modèle de message
+// Importation des modèles
 const Message = require("../models/message.model");
+const User = require("../models/user.model");
 
 // Récupère l'historique des messages entre l'utilisateur connecté et un autre utilisateur
 const { getReceiverSocketId, io } = require("../socket");
@@ -129,6 +130,28 @@ exports.sendMessage = async (req, res) => {
     const { text, replyTo, groupId } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
+
+    // Pour une conversation privée (pas un groupe), on vérifie qu'aucune des deux
+    // personnes n'a bloqué l'autre avant d'autoriser l'envoi
+    if (!groupId) {
+      const [sender, receiver] = await Promise.all([
+        User.findById(senderId).select("blockedUsers"),
+        User.findById(receiverId).select("blockedUsers"),
+      ]);
+
+      const senderBlockedReceiver = sender?.blockedUsers.some(
+        (u) => u.toString() === receiverId,
+      );
+      const receiverBlockedSender = receiver?.blockedUsers.some(
+        (u) => u.toString() === senderId.toString(),
+      );
+
+      if (senderBlockedReceiver || receiverBlockedSender) {
+        return res.status(403).json({
+          message: "Impossible d'envoyer ce message : utilisateur bloqué.",
+        });
+      }
+    }
 
     let imageUrl = "";
     let audioUrl = "";

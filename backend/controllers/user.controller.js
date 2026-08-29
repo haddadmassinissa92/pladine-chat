@@ -2,10 +2,9 @@
 const cloudinary = require("cloudinary").v2;
 const bcrypt = require("bcryptjs");
 
-// Import des models 
+// Import des models
 const User = require("../models/user.model");
 const Message = require("../models/message.model");
-
 
 // Récupère tous les utilisateurs sauf celui qui fait la requête (pour la liste de contacts)
 // Chaque contact est enrichi avec son dernier message échangé et sa date
@@ -76,8 +75,6 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-
-
 // Modifie le mot de passe de l'utilisateur connecté
 exports.changePassword = async (req, res) => {
   try {
@@ -87,12 +84,9 @@ exports.changePassword = async (req, res) => {
       return res.status(400).json({ message: "Champs manquants." });
     }
     if (newPassword.length < 6) {
-      return res
-        .status(400)
-        .json({
-          message:
-            "Le nouveau mot de passe doit contenir au moins 6 caractères.",
-        });
+      return res.status(400).json({
+        message: "Le nouveau mot de passe doit contenir au moins 6 caractères.",
+      });
     }
 
     const user = await User.findById(req.user._id);
@@ -135,6 +129,37 @@ exports.deleteAccount = async (req, res) => {
     });
 
     res.status(200).json({ message: "Compte supprimé avec succès." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Bloque ou débloque un utilisateur (bascule automatique selon l'état actuel)
+exports.toggleBlockUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const myId = req.user._id;
+
+    if (id === myId.toString()) {
+      return res
+        .status(400)
+        .json({ message: "Action impossible sur soi-même." });
+    }
+
+    const me = await User.findById(myId);
+    const isBlocked = me.blockedUsers.includes(id);
+
+    if (isBlocked) {
+      me.blockedUsers = me.blockedUsers.filter((u) => u.toString() !== id);
+    } else {
+      me.blockedUsers.push(id);
+    }
+
+    await me.save();
+    res
+      .status(200)
+      .json({ blockedUsers: me.blockedUsers, blocked: !isBlocked });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Erreur serveur." });

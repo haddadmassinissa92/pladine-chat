@@ -12,7 +12,8 @@ const {
   getUsersForSidebar, 
   updateProfile,
   changePassword,
-  deleteAccount
+  deleteAccount,
+  toggleBlockUser,
  } = require('../controllers/user.controller');
 
 // fonction qui recupere les utilisateurs connecter
@@ -28,6 +29,7 @@ router.get('/online', protect, (req, res) => {
 });
 router.put('/profile', protect, upload.single('avatar'), updateProfile);
 router.put('/change-password', protect, changePassword);
+router.put('/block/:id', protect, toggleBlockUser);
 router.delete('/account', protect, deleteAccount);
 
 // exporter le router
