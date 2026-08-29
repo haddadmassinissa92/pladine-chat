@@ -2,6 +2,7 @@
 
 // Importation des bibliothèques nécessaires
 const cloudinary = require("cloudinary").v2;
+const ogs = require("open-graph-scraper");
 
 // Importation du modèle de message
 const Message = require("../models/message.model");
@@ -51,6 +52,53 @@ const uploadWithRetry = async (base64Image, retries = 2) => {
       if (i === retries) throw error;
       console.log(`Tentative ${i + 1} échouée, nouvelle tentative...`);
     }
+  }
+};
+
+// Cherche la première URL présente dans un texte, ou null s'il n'y en a pas
+const extractFirstUrl = (text) => {
+  if (!text) return null;
+  const match = text.match(/(https?:\/\/[^\s]+)/i);
+  return match ? match[0] : null;
+};
+
+// Récupère l'aperçu (titre, description, image) d'une URL, puis met à jour le message
+// correspondant en base et diffuse la mise à jour en temps réel. Cette fonction est
+// volontairement asynchrone et non bloquante : le message est déjà envoyé et affiché
+// avant que l'aperçu ne soit disponible, pour ne pas ralentir l'envoi.
+const fetchAndAttachLinkPreview = async (message, url) => {
+  try {
+    const { result } = await ogs({ url, timeout: 5000 });
+
+    const linkPreview = {
+      url,
+      title: result.ogTitle || result.twitterTitle || "",
+      description: result.ogDescription || result.twitterDescription || "",
+      image: result.ogImage?.[0]?.url || result.twitterImage?.[0]?.url || "",
+    };
+
+    // Si on n'a rien trouvé d'exploitable, on n'affiche pas d'aperçu
+    if (!linkPreview.title && !linkPreview.description && !linkPreview.image) {
+      return;
+    }
+
+    message.linkPreview = linkPreview;
+    await message.save();
+
+    // On réutilise l'événement "messageEdited" existant côté frontend, qui
+    // remplace déjà un message par son _id dans la liste affichée
+    if (message.group) {
+      io.emit("messageEdited", message);
+    } else {
+      const receiverSocketId = getReceiverSocketId(message.receiver.toString());
+      const senderSocketId = getReceiverSocketId(message.sender.toString());
+      if (receiverSocketId) io.to(receiverSocketId).emit("messageEdited", message);
+      if (senderSocketId) io.to(senderSocketId).emit("messageEdited", message);
+    }
+  } catch (error) {
+    // Un lien qui échoue (page indisponible, timeout...) n'est pas grave :
+    // le message reste affiché normalement, juste sans aperçu
+    console.log("Aperçu de lien indisponible pour", url);
   }
 };
 
@@ -109,6 +157,13 @@ exports.sendMessage = async (req, res) => {
     }
 
     res.status(201).json(newMessage);
+
+    // Si le texte contient un lien, on récupère son aperçu en arrière-plan,
+    // sans faire attendre la réponse déjà envoyée ci-dessus
+    const detectedUrl = extractFirstUrl(text);
+    if (detectedUrl) {
+      fetchAndAttachLinkPreview(newMessage, detectedUrl);
+    }
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Erreur serveur." });

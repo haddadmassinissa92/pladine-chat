@@ -69,6 +69,14 @@ const messageSchema = new mongoose.Schema(
       },
     ],
 
+    // recupere les metadata d'une url
+    linkPreview: {
+      url: String,
+      title: String,
+      description: String,
+      image: String,
+    },
+
     // Indique si le message a été modifié
     edited: {
       type: Boolean,
