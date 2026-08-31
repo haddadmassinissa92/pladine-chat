@@ -1,58 +1,81 @@
-// controllers/message.controller.js
+// message.controller.js
 
-// Importation des bibliothèques tierces (Cloudinary pour les médias, Open Graph pour l'aperçu de liens)
+// Importation des bibliothèques nécessaires
 const cloudinary = require("cloudinary").v2;
 const ogs = require("open-graph-scraper");
 
-// Importation des modèles de données Mongoose (structures de la base de données)
+// Importation des modèles
 const Message = require("../models/message.model");
 const User = require("../models/user.model");
 const Group = require("../models/group.model");
 
-// Importation du serveur de sockets pour la communication et les notifications en temps réel
+// Récupère l'historique des messages entre l'utilisateur connecté et un autre utilisateur
 const { getReceiverSocketId, io } = require("../socket");
 
-// Nombre maximal de messages chargés simultanément par page d'historique
+// Nombre de messages chargés par page (premier chargement, puis à chaque remontée dans l'historique)
 const MESSAGES_PER_PAGE = 30;
 
-// Fonction d'extraction d'historique : applique un filtrage dynamique selon la nature de la discussion (privée ou collective),
-// intègre une clause temporelle optionnelle pour la pagination, puis inverse l'ordre des résultats pour un affichage chronologique
+// Récupère les messages d'une conversation, avec pagination :
+// - sans le paramètre "before" : renvoie les MESSAGES_PER_PAGE derniers messages (les plus récents)
+// - avec "before" (date ISO) : renvoie les MESSAGES_PER_PAGE messages juste avant cette date
+// Dans les deux cas, la réponse est triée du plus ancien au plus récent, et indique
+// si d'autres messages plus anciens existent encore ("hasMore").
+//
+// Cas particulier des groupes découvrables : si l'utilisateur n'est pas encore membre
+// du groupe, il ne voit QUE ses propres messages en attente d'approbation (son message
+// de "candidature"), jamais les vrais messages échangés entre les membres. À l'inverse,
+// les membres ne voient jamais les messages encore en attente d'approbation des autres.
 exports.getMessages = async (req, res) => {
   try {
-    // Récupération des paramètres d'identification, des options de ciblage et du curseur de pagination temporelle
     const { id } = req.params;
     const { isGroup, before } = req.query;
     const myId = req.user._id;
 
-    // Détermination de l'arborescence de recherche documentaire en distinguant le canal groupe et le canal privé
-    const baseFilter =
-      isGroup === "true"
-        ? { group: id }
-        : {
-            $or: [
-              { sender: myId, receiver: id },
-              { sender: id, receiver: myId },
-            ],
-          };
+    let baseFilter;
 
-    // Injection restrictive d'une limite temporelle maximale si le curseur de rechargement est présent
+    if (isGroup === "true") {
+      const group = await Group.findById(id).select("members");
+      const isMember = group?.members.some(
+        (m) => m.toString() === myId.toString(),
+      );
+
+      if (isMember) {
+        // Un membre voit tous les messages normaux du groupe, jamais ceux
+        // encore en attente d'approbation (qui appartiennent à des non-membres)
+        baseFilter = { group: id, pendingApproval: { $ne: true } };
+      } else {
+        // Un non-membre ne voit que ses propres messages en attente, envoyés
+        // avant d'avoir été accepté dans le groupe
+        baseFilter = { group: id, sender: myId, pendingApproval: true };
+      }
+    } else {
+      baseFilter = {
+        $or: [
+          { sender: myId, receiver: id },
+          { sender: id, receiver: myId },
+        ],
+      };
+    }
+
+    // Si "before" est fourni, on ne prend que les messages plus anciens que cette date
     const filter = before
       ? { ...baseFilter, createdAt: { $lt: new Date(before) } }
       : baseFilter;
 
-    // Extraction des documents correspondants indexés à rebours pour isoler la page de données la plus récente
+    // On récupère les messages les plus récents correspondant au filtre, triés du
+    // plus récent au plus ancien, limités à une page, puis on les remet dans l'ordre
+    // chronologique normal (du plus ancien au plus récent) pour l'affichage
     const messagesDesc = await Message.find(filter)
       .sort({ createdAt: -1 })
       .limit(MESSAGES_PER_PAGE)
       .populate("replyTo", "text");
 
-    // Inversion de l'alignement du tableau pour restituer une lecture naturelle du plus ancien au plus récent
     const messages = messagesDesc.reverse();
 
-    // Évaluation quantitative déterminant s'il subsiste un reliquat de messages antérieurs à charger
+    // S'il y a exactement autant de messages que la taille d'une page, il en reste
+    // probablement encore d'autres plus anciens à charger
     const hasMore = messagesDesc.length === MESSAGES_PER_PAGE;
 
-    // Transmission du package de données de discussion accompagné de son indicateur de continuité
     res.status(200).json({ messages, hasMore });
   } catch (error) {
     console.error(error);
@@ -60,44 +83,36 @@ exports.getMessages = async (req, res) => {
   }
 };
 
-// Fonction technique de stockage cloud : orchestre le téléversement d'une image encodée vers la plateforme Cloudinary,
-// en déployant un mécanisme de relance séquentiel régressif en cas d'anomalie réseau ou de timeout
+// Fonction pour uploader une image sur Cloudinary avec des tentatives de retry
 const uploadWithRetry = async (base64Image, retries = 2) => {
-  // Boucle d'itération déterminant le nombre maximal d'essais alloués avant abandon définitif
   for (let i = 0; i <= retries; i++) {
     try {
-      // Tentative d'expédition du flux de données multimédia vers l'espace de stockage distant
       return await cloudinary.uploader.upload(base64Image, {
         folder: "chat-app",
         timeout: 60000,
       });
     } catch (error) {
-      // Déclenchement de l'exception si le seuil critique des tentatives autorisées est franchi
       if (i === retries) throw error;
       console.log(`Tentative ${i + 1} échouée, nouvelle tentative...`);
     }
   }
 };
 
-// Fonction de filtrage textuel : applique une expression régulière sur une chaîne de caractères
-// afin d'isoler et de capturer l'adresse hypertexte initiale, ou renvoie une absence de résultat
+// Cherche la première URL présente dans un texte, ou null s'il n'y en a pas
 const extractFirstUrl = (text) => {
-  // Interruption immédiate du processus d'analyse si le corps du message est inexistant
   if (!text) return null;
-
-  // Analyse de la correspondance structurelle avec un schéma standard d'adresse internet
   const match = text.match(/(https?:\/\/[^\s]+)/i);
   return match ? match[0] : null;
 };
 
-// Procédure asynchrone d'enrichissement d'information : interroge l'URL collectée pour extraire les métadonnées Open Graph,
-// puis met à jour silencieusement le document de base et pousse l'affichage révisé aux terminaux connectés
+// Récupère l'aperçu (titre, description, image) d'une URL, puis met à jour le message
+// correspondant en base et diffuse la mise à jour en temps réel. Cette fonction est
+// volontairement asynchrone et non bloquante : le message est déjà envoyé et affiché
+// avant que l'aperçu ne soit disponible, pour ne pas ralentir l'envoi.
 const fetchAndAttachLinkPreview = async (message, url) => {
   try {
-    // Requête HTTP d'extraction des propriétés structurelles de la page web avec garde-fou temporel
     const { result } = await ogs({ url, timeout: 5000 });
 
-    // Agrégation et normalisation des propriétés descriptives et visuelles collectées
     const linkPreview = {
       url,
       title: result.ogTitle || result.twitterTitle || "",
@@ -105,51 +120,46 @@ const fetchAndAttachLinkPreview = async (message, url) => {
       image: result.ogImage?.[0]?.url || result.twitterImage?.[0]?.url || "",
     };
 
-    // Interruption du traitement si aucune information exploitable n'a pu être extraite de la cible
+    // Si on n'a rien trouvé d'exploitable, on n'affiche pas d'aperçu
     if (!linkPreview.title && !linkPreview.description && !linkPreview.image) {
       return;
     }
 
-    // Assignation du bloc d'aperçu au sein du message et écriture en base de données
     message.linkPreview = linkPreview;
     await message.save();
 
-    // Routage et diffusion de l'événement de mise à jour aux canaux de communication temps réel concernés
+    // On réutilise l'événement "messageEdited" existant côté frontend, qui
+    // remplace déjà un message par son _id dans la liste affichée
     if (message.group) {
       io.emit("messageEdited", message);
     } else {
       const receiverSocketId = getReceiverSocketId(message.receiver.toString());
       const senderSocketId = getReceiverSocketId(message.sender.toString());
-      if (receiverSocketId)
-        io.to(receiverSocketId).emit("messageEdited", message);
+      if (receiverSocketId) io.to(receiverSocketId).emit("messageEdited", message);
       if (senderSocketId) io.to(senderSocketId).emit("messageEdited", message);
     }
   } catch (error) {
-    // Traitement d'erreur passif évitant de bloquer la distribution globale du message en cas d'échec du lien
+    // Un lien qui échoue (page indisponible, timeout...) n'est pas grave :
+    // le message reste affiché normalement, juste sans aperçu
     console.log("Aperçu de lien indisponible pour", url);
   }
 };
 
-// Fonction d'expédition globale : gère la sécurité des blocages, convertit et téléverse les fichiers médias (images/audio),
-// enregistre le message en base, le distribue en temps réel (privé ou groupe) et lance l'extraction asynchrone des liens internet
+// Envoie un nouveau message
 exports.sendMessage = async (req, res) => {
   try {
-    // Récupération du texte, de l'éventuelle réponse, de l'identifiant de
-    // groupe et du destinataire privé
     const { text, replyTo, groupId } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
 
-    // Bloc de sécurité : contrôle mutuel de la liste des blocages
-    // pour interdire l'envoi en discussion privée
+    // Pour une conversation privée (pas un groupe), on vérifie qu'aucune des deux
+    // personnes n'a bloqué l'autre avant d'autoriser l'envoi
     if (!groupId) {
       const [sender, receiver] = await Promise.all([
         User.findById(senderId).select("blockedUsers"),
         User.findById(receiverId).select("blockedUsers"),
       ]);
 
-      // Vérification mutuelle des listes noires pour s'assurer qu'aucun
-      // des deux utilisateurs n'a bloqué l'autre
       const senderBlockedReceiver = sender?.blockedUsers.some(
         (u) => u.toString() === receiverId,
       );
@@ -157,8 +167,6 @@ exports.sendMessage = async (req, res) => {
         (u) => u.toString() === senderId.toString(),
       );
 
-      // Bloc de sécurité : interruption immédiate et refus d'envoi
-      // si l'un des deux utilisateurs a bloqué l'autre
       if (senderBlockedReceiver || receiverBlockedSender) {
         return res.status(403).json({
           message: "Impossible d'envoyer ce message : utilisateur bloqué.",
@@ -166,18 +174,49 @@ exports.sendMessage = async (req, res) => {
       }
     }
 
-    // Initialisation des variables destinées à accueillir les
-    // URLs des fichiers stockés sur le cloud
+    // Détermine si l'expéditeur est déjà membre du groupe visé (le cas échéant),
+    // et si son message doit être mis en attente d'approbation
+    let isPendingApproval = false;
+    let group = null;
+
+    if (groupId) {
+      group = await Group.findById(groupId);
+      if (!group) {
+        return res.status(404).json({ message: "Groupe introuvable." });
+      }
+
+      const isMember = group.members.some(
+        (m) => m.toString() === senderId.toString(),
+      );
+
+      if (!isMember) {
+        // Seuls les groupes découvrables acceptent un message de "candidature"
+        // de la part d'un non-membre
+        if (!group.isDiscoverable) {
+          return res.status(403).json({
+            message: "Tu dois être membre de ce groupe pour y écrire.",
+          });
+        }
+        isPendingApproval = true;
+      } else {
+        // Un membre déjà bloqué dans le groupe ne peut pas écrire
+        const isBlockedInGroup = group.blockedMembers?.some(
+          (u) => u.toString() === senderId.toString(),
+        );
+        if (isBlockedInGroup) {
+          return res.status(403).json({
+            message: "Tu as été bloqué dans ce groupe et ne peux pas y écrire.",
+          });
+        }
+      }
+    }
+
     let imageUrl = "";
     let audioUrl = "";
 
-    // Traitement et téléversement du fichier reçu (image ou note vocale)
-    // vers Cloudinary après encodage Base64
     if (req.file) {
       const base64File = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
 
-      // Routage du téléversement : sépare les flux audio
-      // (envoyés comme type vidéo sur Cloudinary) des images standards
       if (req.file.mimetype.startsWith("audio/")) {
         const uploadResponse = await cloudinary.uploader.upload(base64File, {
           folder: "chat-app",
@@ -190,8 +229,6 @@ exports.sendMessage = async (req, res) => {
       }
     }
 
-    // Création et persistance du nouveau document de message avec
-    // attribution dynamique des canaux
     const newMessage = await Message.create({
       sender: senderId,
       receiver: groupId ? null : receiverId,
@@ -200,23 +237,41 @@ exports.sendMessage = async (req, res) => {
       image: imageUrl,
       audio: audioUrl,
       replyTo: replyTo || null,
+      pendingApproval: isPendingApproval,
     });
 
-    // Liaison dynamique pour récupérer le contenu textuel du
-    // message d'origine en cas de réponse ciblée
     await newMessage.populate("replyTo", "text");
 
-    // Acheminement et diffusion du message en temps réel via
-    // WebSockets selon le type de conversation
     if (groupId) {
-      const group = await Group.findById(groupId);
-      group.members.forEach((memberId) => {
-        if (memberId.toString() === senderId.toString()) return;
-        const memberSocketId = getReceiverSocketId(memberId.toString());
-        if (memberSocketId) {
-          io.to(memberSocketId).emit("newMessage", newMessage);
+      if (isPendingApproval) {
+        // Le message est masqué aux membres tant qu'il n'est pas approuvé :
+        // on ne le diffuse à personne d'autre qu'à l'expéditeur lui-même.
+        // On enregistre aussi automatiquement une demande d'adhésion si ce
+        // n'est pas déjà fait, pour que le créateur voie qu'il doit statuer.
+        const alreadyRequested = group.joinRequests.some(
+          (u) => u.toString() === senderId.toString(),
+        );
+        if (!alreadyRequested) {
+          group.joinRequests.push(senderId);
+          await group.save();
         }
-      });
+
+        const creatorSocketId = getReceiverSocketId(group.createdBy.toString());
+        if (creatorSocketId) {
+          io.to(creatorSocketId).emit("joinRequestReceived", {
+            groupId: group._id,
+            groupName: group.name,
+          });
+        }
+      } else {
+        group.members.forEach((memberId) => {
+          if (memberId.toString() === senderId.toString()) return;
+          const memberSocketId = getReceiverSocketId(memberId.toString());
+          if (memberSocketId) {
+            io.to(memberSocketId).emit("newMessage", newMessage);
+          }
+        });
+      }
     } else {
       const receiverSocketId = getReceiverSocketId(receiverId);
       if (receiverSocketId) {
@@ -224,10 +279,10 @@ exports.sendMessage = async (req, res) => {
       }
     }
 
-    // Renvoi immédiat du message créé au client émetteur pour stabiliser l'interface utilisateur
     res.status(201).json(newMessage);
 
-    // Analyse passive du texte en arrière-plan pour générer l'aperçu visuel si une URL est détectée
+    // Si le texte contient un lien, on récupère son aperçu en arrière-plan,
+    // sans faire attendre la réponse déjà envoyée ci-dessus
     const detectedUrl = extractFirstUrl(text);
     if (detectedUrl) {
       fetchAndAttachLinkPreview(newMessage, detectedUrl);
@@ -238,24 +293,24 @@ exports.sendMessage = async (req, res) => {
   }
 };
 
-// Fonction de mise à jour d'état : bascule en lot le statut des messages entrants vers "lu",
-// horodate l'action et pousse l'accusé de lecture instantané au canal privé ou à l'ensemble du groupe
+// Marque les messages comme lus
 exports.markMessagesAsRead = async (req, res) => {
   try {
-    // Extraction des paramètres d'identification, du type de salon et de l'utilisateur actif
     const { id } = req.params;
     const { isGroup } = req.query;
     const myId = req.user._id;
 
-    // Traitement par lots des messages et notification collective si le salon est un groupe de discussion
     if (isGroup === "true") {
       await Message.updateMany(
-        { group: id, sender: { $ne: myId }, status: { $ne: "read" } },
+        {
+          group: id,
+          sender: { $ne: myId },
+          status: { $ne: "read" },
+          pendingApproval: { $ne: true },
+        },
         { status: "read", readAt: new Date() },
       );
 
-      // Notification temps réel : parcourt les membres du groupe
-      // pour envoyer l'accusé de lecture à tous les participants connectés (sauf l'auteur)
       const group = await Group.findById(id);
       group.members.forEach((memberId) => {
         if (memberId.toString() === myId.toString()) return;
@@ -268,8 +323,6 @@ exports.markMessagesAsRead = async (req, res) => {
         }
       });
     } else {
-      // Traitement ciblé et envoi de l'accusé de lecture unique pour les
-      // salons de discussion privée
       await Message.updateMany(
         { sender: id, receiver: myId, status: { $ne: "read" } },
         { status: "read", readAt: new Date() },
@@ -281,7 +334,6 @@ exports.markMessagesAsRead = async (req, res) => {
       }
     }
 
-    // Validation finale de l'opération envoyée en réponse au client
     res.status(200).json({ message: "Messages marqués comme lus." });
   } catch (error) {
     console.error(error);
@@ -289,35 +341,26 @@ exports.markMessagesAsRead = async (req, res) => {
   }
 };
 
-
-// Fonction de retrait documentaire : recherche l'élément ciblé, valide les droits de propriété de l'auteur,
-// efface l'enregistrement de la base de données et synchronise la suppression sur le terminal distant
+// Supprime un message
 exports.deleteMessage = async (req, res) => {
   try {
-    // Collecte de l'identifiant du message à détruire transmis dans les paramètres d'URL
     const { id } = req.params;
     const message = await Message.findById(id);
 
-    // Bloc de sécurité : interruption de la procédure si le document n'existe pas ou a déjà été effacé
     if (!message) {
       return res.status(404).json({ message: "Message introuvable." });
     }
-
-    // Bloc de sécurité : interdiction de suppression si l'utilisateur connecté n'est pas l'expéditeur d'origine
     if (message.sender.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: "Action non autorisée." });
     }
 
-    // Suppression définitive du document de la base de données MongoDB
     await message.deleteOne();
 
-    // Signalement de l'effacement par WebSocket pour actualiser instantanément l'affichage du destinataire
     const receiverSocketId = getReceiverSocketId(message.receiver.toString());
     if (receiverSocketId) {
       io.to(receiverSocketId).emit("messageDeleted", { messageId: id });
     }
 
-    // Notification de confirmation de suppression renvoyée à l'auteur
     res.status(200).json({ message: "Message supprimé." });
   } catch (error) {
     console.error(error);
@@ -325,37 +368,29 @@ exports.deleteMessage = async (req, res) => {
   }
 };
 
-// Fonction de mise à jour textuelle : applique les modifications sur le contenu du message,
-// bascule l'indicateur d'édition à vrai, puis propage la version révisée au destinataire en temps réel
+// Modifie un message
 exports.editMessage = async (req, res) => {
   try {
-    // Extraction de l'identifiant du message cible et du nouveau texte envoyé par le client
     const { id } = req.params;
     const { text } = req.body;
     const message = await Message.findById(id);
 
-    // Bloc de sécurité : avortement de la requête si le message est introuvable en base de données
     if (!message) {
       return res.status(404).json({ message: "Message introuvable." });
     }
-
-    // Bloc de sécurité : rejet de la modification si l'appelant n'est pas le créateur originel du message
     if (message.sender.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: "Action non autorisée." });
     }
 
-    // Assignation du nouveau texte et activation de la propriété de traçabilité des modifications
     message.text = text;
     message.edited = true;
     await message.save();
 
-    // Acheminement instantané du message modifié via la liaison socket du destinataire direct
     const receiverSocketId = getReceiverSocketId(message.receiver.toString());
     if (receiverSocketId) {
       io.to(receiverSocketId).emit("messageEdited", message);
     }
 
-    // Renvoi du document mis à jour pour rafraîchir l'interface du client émetteur
     res.status(200).json(message);
   } catch (error) {
     console.error(error);
@@ -363,48 +398,42 @@ exports.editMessage = async (req, res) => {
   }
 };
 
-// Fonction d'interactivité : bascule l'état d'une réaction émoji, nettoie les anciens choix de l'utilisateur,
-// recalcule le tableau des mentions et distribue les nouvelles métadonnées aux canaux (privés ou collectifs)
+// Ajoute ou retire une réaction (emoji) sur un message
 exports.reactToMessage = async (req, res) => {
   try {
-    // Récupération des paramètres d'URL, de l'émoji sélectionné et de l'auteur de la réaction
     const { id } = req.params;
     const { emoji } = req.body;
     const myId = req.user._id;
 
-    // Validation documentaire préliminaire vérifiant la présence du message ciblé
     const message = await Message.findById(id);
     if (!message) {
       return res.status(404).json({ message: "Message introuvable." });
     }
 
-    // Recherche de l'index d'une réaction identique précédemment soumise par ce même utilisateur
     const existingIndex = message.reactions.findIndex(
       (r) => r.user.toString() === myId.toString() && r.emoji === emoji,
     );
 
-    // Retrait de la réaction si elle existait déjà (effet bascule), sinon remplacement et insertion du nouvel émoji
     if (existingIndex !== -1) {
+      // Déjà réagi avec cet emoji : on retire la réaction
       message.reactions.splice(existingIndex, 1);
     } else {
+      // Retire une éventuelle autre réaction de cet utilisateur, puis ajoute la nouvelle
       message.reactions = message.reactions.filter(
         (r) => r.user.toString() !== myId.toString(),
       );
       message.reactions.push({ emoji, user: myId });
     }
 
-    // Persistance des données révisées et jointure nominale pour afficher les auteurs des réactions
     await message.save();
     await message.populate("reactions.user", "username");
 
-    // Préparation de l'objet de données centralisé destiné à la mise à jour des interfaces clients
     const payload = {
       messageId: message._id,
       reactions: message.reactions,
       groupId: message.group || null,
     };
 
-    // Acheminement du flux de données en fonction du type de canal (diffusion globale pour un groupe ou ciblée pour un chat privé)
     if (message.group) {
       io.emit("messageReaction", payload);
     } else {
@@ -416,7 +445,6 @@ exports.reactToMessage = async (req, res) => {
         io.to(senderSocketId).emit("messageReaction", payload);
     }
 
-    // Restitution de l'état structurel final du message au client émetteur
     res.status(200).json(message);
   } catch (error) {
     console.error(error);
