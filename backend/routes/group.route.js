@@ -16,6 +16,11 @@ const {
   addMembers,
   removeMember,
   toggleBlockMember,
+  toggleDiscoverable,
+  getDiscoverableGroups,
+  requestToJoin,
+  approveJoinRequest,
+  rejectJoinRequest,
 } = require('../controllers/group.controller');
 
 
@@ -28,6 +33,12 @@ router.put('/rename/:id', protect, renameGroup);
 router.put('/add-members/:id', protect, addMembers);
 router.put('/remove-member/:id', protect, removeMember);
 router.put('/block-member/:id', protect, toggleBlockMember);
+
+router.put('/toggle-discoverable/:id', protect, toggleDiscoverable);
+router.get('/discoverable/list', protect, getDiscoverableGroups);
+router.post('/request-join/:id', protect, requestToJoin);
+router.put('/approve-join/:id', protect, approveJoinRequest);
+router.put('/reject-join/:id', protect, rejectJoinRequest);
 
 // exporter le module avec le router
 module.exports = router;

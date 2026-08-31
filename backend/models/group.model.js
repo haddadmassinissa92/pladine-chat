@@ -19,6 +19,17 @@ const groupSchema = new mongoose.Schema(
         ref: "User",
       },
     ],
+
+    isDiscoverable: {
+      type: Boolean,
+      default: false,
+    },
+    joinRequests: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

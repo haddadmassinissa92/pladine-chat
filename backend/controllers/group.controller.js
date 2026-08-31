@@ -27,10 +27,9 @@ exports.getMyGroups = async (req, res) => {
   try {
     const Message = require("../models/message.model");
 
-    const groups = await Group.find({ members: req.user._id }).populate(
-      "members",
-      "username",
-    );
+    const groups = await Group.find({ members: req.user._id })
+      .populate("members", "username")
+      .populate("joinRequests", "username");
 
     const groupsWithLastMessage = await Promise.all(
       groups.map(async (group) => {
@@ -243,6 +242,165 @@ exports.toggleBlockMember = async (req, res) => {
     await group.populate("members", "username");
 
     broadcastGroupUpdate(group);
+
+    res.status(200).json(group);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Rend un groupe découvrable ou privé (bascule automatique, réservé au créateur).
+// Un groupe découvrable peut être trouvé par d'autres utilisateurs, qui peuvent
+// alors envoyer une demande d'adhésion pour le rejoindre.
+exports.toggleDiscoverable = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const group = await requireGroupCreator(req, res, id);
+    if (!group) return;
+
+    group.isDiscoverable = !group.isDiscoverable;
+    await group.save();
+    await group.populate("members", "username");
+    await group.populate("joinRequests", "username");
+
+    broadcastGroupUpdate(group);
+
+    res.status(200).json(group);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Liste les groupes découvrables dont l'utilisateur connecté n'est pas déjà membre
+exports.getDiscoverableGroups = async (req, res) => {
+  try {
+    const myId = req.user._id;
+
+    const groups = await Group.find({
+      isDiscoverable: true,
+      members: { $ne: myId },
+    }).select("name members joinRequests createdBy");
+
+    // On indique pour chaque groupe si une demande est déjà en attente
+    const groupsWithStatus = groups.map((group) => ({
+      _id: group._id,
+      name: group.name,
+      memberCount: group.members.length,
+      createdBy: group.createdBy,
+      requestPending: group.joinRequests.some(
+        (u) => u.toString() === myId.toString(),
+      ),
+    }));
+
+    res.status(200).json(groupsWithStatus);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Envoie une demande d'adhésion à un groupe découvrable
+exports.requestToJoin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const myId = req.user._id;
+
+    const group = await Group.findById(id);
+    if (!group) {
+      return res.status(404).json({ message: "Groupe introuvable." });
+    }
+    if (!group.isDiscoverable) {
+      return res.status(403).json({ message: "Ce groupe n'est pas découvrable." });
+    }
+    if (group.members.some((m) => m.toString() === myId.toString())) {
+      return res.status(400).json({ message: "Tu es déjà membre de ce groupe." });
+    }
+    if (group.joinRequests.some((u) => u.toString() === myId.toString())) {
+      return res.status(400).json({ message: "Demande déjà envoyée." });
+    }
+
+    group.joinRequests.push(myId);
+    await group.save();
+
+    // On prévient le créateur du groupe en temps réel
+    const creatorSocketId = getReceiverSocketId(group.createdBy.toString());
+    if (creatorSocketId) {
+      io.to(creatorSocketId).emit("joinRequestReceived", {
+        groupId: group._id,
+        groupName: group.name,
+      });
+    }
+
+    res.status(200).json({ message: "Demande envoyée." });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Accepte la demande d'adhésion d'un utilisateur (réservé au créateur)
+exports.approveJoinRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.body;
+
+    const group = await requireGroupCreator(req, res, id);
+    if (!group) return;
+
+    if (!group.joinRequests.some((u) => u.toString() === userId)) {
+      return res.status(400).json({ message: "Aucune demande de cet utilisateur." });
+    }
+
+    group.joinRequests = group.joinRequests.filter(
+      (u) => u.toString() !== userId,
+    );
+    group.members.push(userId);
+    await group.save();
+    await group.populate("members", "username");
+    await group.populate("joinRequests", "username");
+
+    broadcastGroupUpdate(group);
+
+    // On prévient la personne acceptée, pour qu'elle voie apparaître le groupe
+    const approvedSocketId = getReceiverSocketId(userId);
+    if (approvedSocketId) {
+      io.to(approvedSocketId).emit("joinRequestApproved", { group });
+    }
+
+    res.status(200).json(group);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Refuse la demande d'adhésion d'un utilisateur (réservé au créateur)
+exports.rejectJoinRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.body;
+
+    const group = await requireGroupCreator(req, res, id);
+    if (!group) return;
+
+    group.joinRequests = group.joinRequests.filter(
+      (u) => u.toString() !== userId,
+    );
+    await group.save();
+    await group.populate("members", "username");
+    await group.populate("joinRequests", "username");
+
+    broadcastGroupUpdate(group);
+
+    const rejectedSocketId = getReceiverSocketId(userId);
+    if (rejectedSocketId) {
+      io.to(rejectedSocketId).emit("joinRequestRejected", {
+        groupId: group._id,
+        groupName: group.name,
+      });
+    }
 
     res.status(200).json(group);
   } catch (error) {

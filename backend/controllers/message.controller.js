@@ -7,7 +7,6 @@ const ogs = require("open-graph-scraper");
 // Importation des modèles
 const Message = require("../models/message.model");
 const User = require("../models/user.model");
-const Group = require("../models/group.model");
 
 // Récupère l'historique des messages entre l'utilisateur connecté et un autre utilisateur
 const { getReceiverSocketId, io } = require("../socket");
@@ -152,19 +151,6 @@ exports.sendMessage = async (req, res) => {
           message: "Impossible d'envoyer ce message : utilisateur bloqué.",
         });
       }
-    } else {
-      // Pour un groupe, on vérifie que l'expéditeur n'a pas été bloqué
-      // à l'intérieur de ce groupe précis par son créateur
-      const group = await Group.findById(groupId).select("blockedMembers");
-      const isBlockedInGroup = group?.blockedMembers.some(
-        (u) => u.toString() === senderId.toString(),
-      );
-
-      if (isBlockedInGroup) {
-        return res.status(403).json({
-          message: "Tu as été bloqué dans ce groupe et ne peux pas y écrire.",
-        });
-      }
     }
 
     let imageUrl = "";
@@ -198,6 +184,7 @@ exports.sendMessage = async (req, res) => {
     await newMessage.populate("replyTo", "text");
 
     if (groupId) {
+      const Group = require("../models/group.model");
       const group = await Group.findById(groupId);
       group.members.forEach((memberId) => {
         if (memberId.toString() === senderId.toString()) return;
@@ -240,6 +227,7 @@ exports.markMessagesAsRead = async (req, res) => {
         { status: "read", readAt: new Date() },
       );
 
+      const Group = require("../models/group.model");
       const group = await Group.findById(id);
       group.members.forEach((memberId) => {
         if (memberId.toString() === myId.toString()) return;
