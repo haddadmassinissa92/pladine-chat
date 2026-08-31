@@ -1,8 +1,12 @@
+// user.model.js
+
+// Importation du module Mongoose
 const mongoose = require("mongoose");
 
+// Définition du schéma principal pour la collection des utilisateurs
 const userSchema = new mongoose.Schema(
   {
-    // Nom d'utilisateur choisis 
+    // Nom unique servant d'identifiant public à l'utilisateur
     username: {
       type: String,
       required: true,
@@ -10,7 +14,7 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // L'email de l'utilisateur
+    // Adresse de messagerie électronique unique et normalisée en minuscules
     email: {
       type: String,
       required: true,
@@ -19,31 +23,31 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
     },
 
-    // Le mot de passe
+    // Empreinte sécurisée ou clé secrète d'authentification du compte
     password: {
       type: String,
       required: true,
     },
 
-    // L'image avatar de l'utilisateur
+    // Lien ou chemin d'accès vers la photographie de profil de l'utilisateur
     avatar: {
       type: String,
       default: "",
     },
 
-    // boolean pour savoir si l'utilisateur est connecter ou pas
+    // Indicateur de présence stipulant si l'utilisateur est actuellement connecté
     isOnline: {
       type: Boolean,
       default: false,
     },
 
-    // pour le message vu et ca precise l'heure de la vue du message
+    // Horodatage précis marquant la dernière activité ou déconnexion constatée
     lastSeen: {
       type: Date,
       default: Date.now,
     },
 
-    // les utilisateurs bloquer
+    // Tableau stockant les identifiants des profils mis en liste noire par cet utilisateur
     blockedUsers: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -51,7 +55,9 @@ const userSchema = new mongoose.Schema(
       },
     ],
   },
-  { timestamps: true },
+  // Injection automatique des propriétés temporelles de création et d'édition du compte
+  { timestamps: true }
 );
 
+// Publication et exportation du modèle fonctionnel sous l'entité User
 module.exports = mongoose.model("User", userSchema);

@@ -1,16 +1,20 @@
-// multer.middleware.js
+// middlewares/multer.middleware.js
 
-// Importation de la bibliothèque multer pour gérer les fichiers téléchargés
+// Importation du module de gestion des téléchargements 
+// de fichiers binaires transmis par formulaire HTTP
 const multer = require('multer');
 
-// Configuration du stockage en mémoire pour multer
+// Configuration du stockage temporaire des fichiers directement 
+// dans la mémoire vive (RAM) sous forme de buffers
 const storage = multer.memoryStorage();
 
-// Configuration de multer avec les options de stockage et de taille maximale de fichier
+// Initialisation de l'instance de traitement 
+// avec attribution de la zone de stockage et définition d'un plafond de taille strict
 const upload = multer({
   storage,
   limits: { fileSize: 8 * 1024 * 1024 }, // 8 Mo max
 });
 
-// Exportation du middleware multer pour être utilisé dans d'autres parties de l'application
+// Publication et exportation du middleware configuré 
+// pour intercepter les fichiers sur les routes de l'API
 module.exports = upload;

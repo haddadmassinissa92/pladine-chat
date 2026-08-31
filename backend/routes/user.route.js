@@ -1,4 +1,4 @@
-// user.route.js
+// routes/user.route.js
 
 // Import des bibliotheques necessaires
 const express = require('express');

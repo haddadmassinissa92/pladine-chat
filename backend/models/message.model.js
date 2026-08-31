@@ -1,63 +1,62 @@
 // message.model.js
 
-// Importation de Mongoose
+// Importation de Mongoose.
 const mongoose = require("mongoose");
 
-// Définition du schéma de message
+// Définition du schéma de message.
 const messageSchema = new mongoose.Schema(
   {
-    // Référence à l'utilisateur qui envoie le message
+    // Référence à l'utilisateur qui envoie le message.
     sender: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
 
-    // Référence à l'utilisateur qui reçoit le message
-    // Ou à un groupe si le message est envoyé dans un groupe
+    // Référence à l'utilisateur qui reçoit le message.
     receiver: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
 
-    // creation d'un group
+    // Référence au groupe dans lequel le message est envoyé.
     group: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Group",
     },
 
-    // Contenu textuel du message
+    // Contenu textuel du message.
     text: {
       type: String,
       trim: true,
     },
 
-    // contenu pour un message audio
+    // URL ou chemin du fichier audio joint.
     audio: {
       type: String,
       default: "",
     },
 
-    // URL de l'image associée au message (si applicable)
+    // URL ou chemin de l'image jointe.
     image: {
       type: String,
       default: "",
     },
 
-    // Statut du message (envoyé, livré, lu)
+    // État d'avancement de la distribution du message.
     status: {
       type: String,
       enum: ["sent", "delivered", "read"],
       default: "sent",
     },
 
-    // Indique l'heure dont un message precis a etais lu
+    // Date et heure précises de la lecture du message.
     readAt: {
       type: Date,
       default: null,
     },
 
-    // Ajoute une reaction comme l'ajout d'un emoji pour un message
+    // Liste des réactions et émojis laissés par les utilisateurs.
     reactions: [
       {
         emoji: { type: String, required: true },
@@ -69,7 +68,7 @@ const messageSchema = new mongoose.Schema(
       },
     ],
 
-    // recupere les metadata d'une url
+    // Métadonnées extraites pour l'aperçu visuel d'un lien web.
     linkPreview: {
       url: String,
       title: String,
@@ -77,23 +76,28 @@ const messageSchema = new mongoose.Schema(
       image: String,
     },
 
-    // Indique si le message a été modifié
+    // Indicateur de mise en attente de modération ou de validation.
+    pendingApproval: {
+      type: Boolean,
+      default: false,
+    },
+
+    // Indicateur stipulant si le contenu textuel a été modifié après envoi.
     edited: {
       type: Boolean,
       default: false,
     },
 
-    // Référence à un message auquel ce message répond (si applicable)
+    // Référence au message d'origine en cas de réponse ciblée.
     replyTo: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Message",
       default: null,
     },
   },
-  // Options du schéma pour inclure les timestamps (createdAt et updatedAt)
-  // pour gerer automatiquement les dates de création et de mise à jour des messages
-  { timestamps: true },
+  // Options du schéma pour la gestion automatique des dates de création et de modification.
+  { timestamps: true }
 );
 
-// Création du modèle de message
+// Exportation du modèle Mongoose pour l'utiliser dans l'application.
 module.exports = mongoose.model("Message", messageSchema);
