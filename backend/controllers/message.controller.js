@@ -15,6 +15,38 @@ const { getReceiverSocketId, io } = require("../socket");
 // Nombre de messages chargés par page (premier chargement, puis à chaque remontée dans l'historique)
 const MESSAGES_PER_PAGE = 30;
 
+// Nombre maximal de résultats renvoyés par une recherche dans l'historique
+const SEARCH_RESULTS_LIMIT = 200;
+
+// Échappe les caractères spéciaux d'une chaîne pour l'utiliser sans risque
+// dans une expression régulière (évite qu'un utilisateur casse la recherche
+// ou fasse une injection avec des caractères comme . * + ? etc.)
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Construit le filtre de base d'une conversation (groupe ou privée), en tenant
+// compte des règles de visibilité des messages en attente d'approbation.
+// Factorisé pour être réutilisé à la fois par getMessages et searchMessages.
+const buildBaseFilter = async (id, isGroup, myId) => {
+  if (isGroup === "true") {
+    const group = await Group.findById(id).select("members");
+    const isMember = group?.members.some(
+      (m) => m.toString() === myId.toString(),
+    );
+
+    if (isMember) {
+      return { group: id, pendingApproval: { $ne: true } };
+    }
+    return { group: id, sender: myId, pendingApproval: true };
+  }
+
+  return {
+    $or: [
+      { sender: myId, receiver: id },
+      { sender: id, receiver: myId },
+    ],
+  };
+};
+
 // Récupère les messages d'une conversation, avec pagination :
 // - sans le paramètre "before" : renvoie les MESSAGES_PER_PAGE derniers messages (les plus récents)
 // - avec "before" (date ISO) : renvoie les MESSAGES_PER_PAGE messages juste avant cette date
@@ -31,31 +63,7 @@ exports.getMessages = async (req, res) => {
     const { isGroup, before } = req.query;
     const myId = req.user._id;
 
-    let baseFilter;
-
-    if (isGroup === "true") {
-      const group = await Group.findById(id).select("members");
-      const isMember = group?.members.some(
-        (m) => m.toString() === myId.toString(),
-      );
-
-      if (isMember) {
-        // Un membre voit tous les messages normaux du groupe, jamais ceux
-        // encore en attente d'approbation (qui appartiennent à des non-membres)
-        baseFilter = { group: id, pendingApproval: { $ne: true } };
-      } else {
-        // Un non-membre ne voit que ses propres messages en attente, envoyés
-        // avant d'avoir été accepté dans le groupe
-        baseFilter = { group: id, sender: myId, pendingApproval: true };
-      }
-    } else {
-      baseFilter = {
-        $or: [
-          { sender: myId, receiver: id },
-          { sender: id, receiver: myId },
-        ],
-      };
-    }
+    const baseFilter = await buildBaseFilter(id, isGroup, myId);
 
     // Si "before" est fourni, on ne prend que les messages plus anciens que cette date
     const filter = before
@@ -77,6 +85,40 @@ exports.getMessages = async (req, res) => {
     const hasMore = messagesDesc.length === MESSAGES_PER_PAGE;
 
     res.status(200).json({ messages, hasMore });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Recherche un mot ou une expression dans tout l'historique d'une conversation
+// (pas seulement les messages déjà chargés côté client). Respecte les mêmes
+// règles de visibilité que getMessages (groupe/privé, messages en attente).
+// Renvoie les messages correspondants triés du plus ancien au plus récent,
+// pour permettre une navigation "résultat précédent / suivant" côté frontend.
+exports.searchMessages = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isGroup, q } = req.query;
+    const myId = req.user._id;
+
+    if (!q || !q.trim()) {
+      return res.status(200).json({ results: [] });
+    }
+
+    const baseFilter = await buildBaseFilter(id, isGroup, myId);
+
+    const filter = {
+      ...baseFilter,
+      text: { $regex: escapeRegex(q.trim()), $options: "i" },
+    };
+
+    const results = await Message.find(filter)
+      .sort({ createdAt: 1 })
+      .limit(SEARCH_RESULTS_LIMIT)
+      .select("_id text sender createdAt");
+
+    res.status(200).json({ results });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Erreur serveur." });

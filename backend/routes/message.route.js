@@ -18,12 +18,14 @@ const {
     markMessagesAsRead ,
     deleteMessage,
     editMessage,
-    reactToMessage
+    reactToMessage,
+    searchMessages
 } = require('../controllers/message.controller');
 
 // Enregistrement des points d'accès sécurisés encadrant 
 // le cycle de vie complet, l'interactivité et l'état des messages échangés
 router.get('/:id', protect, getMessages);
+router.get('/search/:id', protect, searchMessages);
 router.post('/send/:id', protect, upload.single('image'), sendMessage);
 router.delete('/:id', protect, deleteMessage);
 router.put('/read/:id', protect, markMessagesAsRead);
