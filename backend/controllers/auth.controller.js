@@ -4,6 +4,7 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/user.model");
+const logger = require("../logger");
 
 // Fonction utilitaire interne chargée de créer un jeton de session chiffré (valable 7 jours)
 // et de l'injecter directement dans les cookies de réponse du navigateur pour sécuriser le stockage
@@ -57,7 +58,7 @@ exports.signup = async (req, res) => {
       avatar: newUser.avatar,
     });
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, "Erreur lors de l'inscription");
     res.status(500).json({ message: "Erreur serveur lors de l'inscription." });
   }
 };
@@ -96,7 +97,7 @@ exports.login = async (req, res) => {
       avatar: user.avatar,
     });
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, "Erreur lors de la connexion");
     res.status(500).json({ message: "Erreur serveur lors de la connexion." });
   }
 };

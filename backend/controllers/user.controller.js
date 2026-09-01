@@ -9,6 +9,7 @@ const bcrypt = require("bcryptjs");
 // la gestion des comptes et de l'historique des discussions
 const User = require("../models/user.model");
 const Message = require("../models/message.model");
+const logger = require("../logger");
 
 // Fonction d'extraction d'annuaire : récupère l'ensemble des profils inscrits (hors utilisateur connecté),
 // effectue des requêtes croisées pour joindre le dernier message privé et calcule le compteur des éléments non lus
@@ -54,7 +55,7 @@ exports.getUsersForSidebar = async (req, res) => {
     // Envoi de la structure de données finalisée destinée à alimenter la barre latérale du chat
     res.status(200).json(usersWithLastMessage);
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, "Erreur lors de la récupération des contacts");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
@@ -86,7 +87,7 @@ exports.updateProfile = async (req, res) => {
     // Restitution du document de profil mis à jour au format de réponse standardisé
     res.status(200).json(updatedUser);
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, "Erreur lors de la mise à jour du profil");
     res
       .status(500)
       .json({ message: "Erreur lors de la mise à jour du profil." });
@@ -122,7 +123,7 @@ exports.changePassword = async (req, res) => {
     // Renvoi de la notification de succès confirmant la mise à jour du système d'authentification
     res.status(200).json({ message: "Mot de passe modifié avec succès." });
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, "Erreur lors du changement de mot de passe");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
@@ -157,7 +158,7 @@ exports.deleteAccount = async (req, res) => {
     // Envoi de la notification de clôture définitive du compte utilisateur
     res.status(200).json({ message: "Compte supprimé avec succès." });
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, "Erreur lors de la suppression du compte");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
@@ -197,7 +198,7 @@ exports.toggleBlockUser = async (req, res) => {
       .status(200)
       .json({ blockedUsers: me.blockedUsers, blocked: !isBlocked });
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, "Erreur lors du blocage/déblocage d'un utilisateur");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };

@@ -8,6 +8,7 @@ const ogs = require("open-graph-scraper");
 const Message = require("../models/message.model");
 const User = require("../models/user.model");
 const Group = require("../models/group.model");
+const logger = require("../logger");
 
 // Récupère l'historique des messages entre l'utilisateur connecté et un autre utilisateur
 const { getReceiverSocketId, io } = require("../socket");
@@ -86,7 +87,7 @@ exports.getMessages = async (req, res) => {
 
     res.status(200).json({ messages, hasMore });
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, "Erreur lors de la récupération des messages");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
@@ -120,7 +121,7 @@ exports.searchMessages = async (req, res) => {
 
     res.status(200).json({ results });
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, "Erreur lors de la recherche dans les messages");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
@@ -135,7 +136,7 @@ const uploadWithRetry = async (base64Image, retries = 2) => {
       });
     } catch (error) {
       if (i === retries) throw error;
-      console.log(`Tentative ${i + 1} échouée, nouvelle tentative...`);
+      logger.warn({ attempt: i + 1, err: error }, "Échec d'upload Cloudinary, nouvelle tentative");
     }
   }
 };
@@ -183,7 +184,7 @@ const fetchAndAttachLinkPreview = async (message, url) => {
   } catch (error) {
     // Un lien qui échoue (page indisponible, timeout...) n'est pas grave :
     // le message reste affiché normalement, juste sans aperçu
-    console.log("Aperçu de lien indisponible pour", url);
+    logger.info({ url }, "Aperçu de lien indisponible");
   }
 };
 
@@ -330,7 +331,7 @@ exports.sendMessage = async (req, res) => {
       fetchAndAttachLinkPreview(newMessage, detectedUrl);
     }
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, "Erreur lors de l'envoi d'un message");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
@@ -378,7 +379,7 @@ exports.markMessagesAsRead = async (req, res) => {
 
     res.status(200).json({ message: "Messages marqués comme lus." });
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, "Erreur lors du marquage des messages comme lus");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
@@ -405,7 +406,7 @@ exports.deleteMessage = async (req, res) => {
 
     res.status(200).json({ message: "Message supprimé." });
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, "Erreur lors de la suppression d'un message");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
@@ -435,7 +436,7 @@ exports.editMessage = async (req, res) => {
 
     res.status(200).json(message);
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, "Erreur lors de la modification d'un message");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
@@ -489,7 +490,7 @@ exports.reactToMessage = async (req, res) => {
 
     res.status(200).json(message);
   } catch (error) {
-    console.error(error);
+    logger.error({ err: error }, "Erreur lors de l'ajout d'une réaction");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
