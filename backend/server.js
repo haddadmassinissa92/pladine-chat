@@ -2,6 +2,8 @@
 
 require('dotenv').config();
 
+const logger = require('./logger');
+
 // Importe l'app Express déjà entièrement configurée (routes, middlewares,
 // connexion MongoDB) depuis app.js
 require('./app');
@@ -15,5 +17,5 @@ const PORT = process.env.PORT || 5001;
 
 // Démarrer le serveur
 server.listen(PORT, () => {
-  console.log(`🚀 Serveur en écoute sur http://localhost:${PORT}`);
+  logger.info(`Serveur en écoute sur http://localhost:${PORT}`);
 });

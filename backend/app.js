@@ -10,6 +10,7 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const mongoose = require('mongoose');
+const logger = require('./logger');
 
 // Importer l'app Express et le serveur HTTP/socket.io partagés
 const { app } = require('./socket');
@@ -48,8 +49,8 @@ app.use(cookieParser());
 // (mongodb-memory-server), pour ne jamais toucher à la vraie base de données
 if (process.env.NODE_ENV !== 'test') {
   mongoose.connect(process.env.MONGO_URI, { dbName: 'ChatApp' })
-    .then(() => console.log('✅ Connecté à MongoDB'))
-    .catch((err) => console.error('❌ Erreur de connexion', err));
+    .then(() => logger.info('Connecté à MongoDB'))
+    .catch((err) => logger.error({ err }, 'Erreur de connexion à MongoDB'));
 }
 
 // Définir les routes
@@ -86,7 +87,7 @@ app.use((req, res) => {
 
 // Gérer les erreurs serveur
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  logger.error({ err, path: req.path, method: req.method }, 'Erreur serveur non gérée');
   res.status(500).json({ message: 'Erreur serveur' });
 });
 
