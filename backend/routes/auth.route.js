@@ -9,6 +9,9 @@ const router = express.Router();
 // protéger des tentatives de force brute sur la connexion et l'inscription
 const rateLimit = require('express-rate-limit');
 
+// Importation de l'outil de validation des données envoyées par le client
+const { body, validationResult } = require('express-validator');
+
 // Importation des fonctions de controller d'accès et du middleware de protection de session
 const { checkAuth } = require('../controllers/auth.controller');
 const { signup, login, logout } = require('../controllers/auth.controller');
@@ -40,10 +43,51 @@ const signupLimiter = rateLimit({
   },
 });
 
+// Petit middleware réutilisable : vérifie si les règles de validation
+// définies juste avant (via body(...).xxx()) ont été respectées. Si ce
+// n'est pas le cas, renvoie une erreur 400 avec le premier message clair
+// trouvé, sans jamais laisser une donnée invalide atteindre le contrôleur.
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ message: errors.array()[0].msg });
+  }
+  next();
+};
+
+// Règles de validation pour l'inscription : nom d'utilisateur et mot de
+// passe avec des longueurs raisonnables, email au format valide
+const signupValidation = [
+  body('username')
+    .trim()
+    .isLength({ min: 3, max: 20 })
+    .withMessage("Le nom d'utilisateur doit contenir entre 3 et 20 caractères.")
+    .matches(/^[a-zA-Z0-9_]+$/)
+    .withMessage(
+      "Le nom d'utilisateur ne peut contenir que des lettres, chiffres et underscores.",
+    ),
+  body('email')
+    .trim()
+    .isEmail()
+    .withMessage('Adresse email invalide.')
+    .normalizeEmail(),
+  body('password')
+    .isLength({ min: 6 })
+    .withMessage('Le mot de passe doit contenir au moins 6 caractères.'),
+];
+
+// Règles de validation pour la connexion : on vérifie juste la présence
+// et le format de base, la vraie vérification du mot de passe se fait
+// ensuite dans le contrôleur en le comparant au hash stocké
+const loginValidation = [
+  body('email').trim().isEmail().withMessage('Adresse email invalide.'),
+  body('password').notEmpty().withMessage('Le mot de passe est requis.'),
+];
+
 // Enregistrement des points d'accès (endpoints) publics gérant l'inscription, 
 // la connexion et la déconnexion
-router.post('/signup', signupLimiter, signup);
-router.post('/login', loginLimiter, login);
+router.post('/signup', signupLimiter, signupValidation, validate, signup);
+router.post('/login', loginLimiter, loginValidation, validate, login);
 router.post('/logout', logout);
 
 // Enregistrement du point d'accès sécurisé permettant au client de 

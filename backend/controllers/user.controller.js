@@ -93,24 +93,13 @@ exports.updateProfile = async (req, res) => {
   }
 };
 
-// Fonction de sécurité informatique : contrôle la présence des arguments, valide la complexité minimale du nouveau secret,
-// compare l'ancien mot de passe via hachage comparatif, puis applique et chiffre la nouvelle clé d'accès
+// Fonction de sécurité informatique : compare l'ancien mot de passe via hachage
+// comparatif, puis applique et chiffre la nouvelle clé d'accès. La présence des
+// champs et la longueur minimale du nouveau mot de passe sont déjà garanties
+// par la validation appliquée au niveau de la route, avant d'arriver ici.
 exports.changePassword = async (req, res) => {
   try {
-    // Extraction des valeurs de contrôle et de la nouvelle chaîne secrète soumises par l'utilisateur
     const { currentPassword, newPassword } = req.body;
-
-    // Bloc de sécurité : rejet de l'opération si l'un des paramètres obligatoires est absent
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ message: "Champs manquants." });
-    }
-
-    // Bloc de sécurité : vérification de conformité exigeant un seuil de longueur de chaîne robuste
-    if (newPassword.length < 6) {
-      return res.status(400).json({
-        message: "Le nouveau mot de passe doit contenir au moins 6 caractères.",
-      });
-    }
 
     // Recherche documentaire complète du profil utilisateur pour récupérer l'empreinte de sécurité
     const user = await User.findById(req.user._id);
@@ -139,7 +128,8 @@ exports.changePassword = async (req, res) => {
 };
 
 // Fonction de résiliation de compte : exige une confirmation par mot de passe, supprime définitivement l'enregistrement utilisateur,
-// puis procède au nettoyage complet des cookies d'authentification pour déconnecter immédiatement le navigateur
+// puis procède au nettoyage complet des cookies d'authentification pour déconnecter immédiatement le navigateur.
+// La présence du mot de passe est déjà garantie par la validation de la route.
 exports.deleteAccount = async (req, res) => {
   try {
     // Extraction du mot de passe de validation transmis au sein du corps de la requête

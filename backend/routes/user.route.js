@@ -6,6 +6,9 @@ const express = require('express');
 // Import de l'outil de limitation du nombre de requêtes
 const rateLimit = require('express-rate-limit');
 
+// Import de l'outil de validation des données envoyées par le client
+const { body, param, validationResult } = require('express-validator');
+
 // Import des middlewares multer pour les images et auth.middleware pour la protection
 const upload = require('../middlewares/multer.middleware');
 const { protect } = require('../middlewares/auth.middleware');
@@ -40,15 +43,61 @@ const passwordSensitiveLimiter = rateLimit({
   },
 });
 
+// Petit middleware réutilisable : vérifie si les règles de validation
+// définies juste avant ont été respectées, et bloque la requête avec un
+// message clair sinon, avant qu'elle n'atteigne le contrôleur
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ message: errors.array()[0].msg });
+  }
+  next();
+};
+
+// Règles de validation pour le changement de mot de passe : les deux champs
+// sont requis, et le nouveau mot de passe doit respecter une longueur minimale
+const changePasswordValidation = [
+  body('currentPassword').notEmpty().withMessage('Le mot de passe actuel est requis.'),
+  body('newPassword')
+    .isLength({ min: 6 })
+    .withMessage('Le nouveau mot de passe doit contenir au moins 6 caractères.'),
+];
+
+// Règle de validation pour la suppression de compte : le mot de passe de
+// confirmation est requis
+const deleteAccountValidation = [
+  body('password').notEmpty().withMessage('Le mot de passe est requis pour confirmer.'),
+];
+
+// Règle de validation pour le blocage : l'identifiant ciblé doit être un
+// identifiant MongoDB valide
+const blockUserValidation = [
+  param('id').isMongoId().withMessage('Utilisateur invalide.'),
+];
+
 // creation des routes
 router.get('/', protect, getUsersForSidebar);
 router.get('/online', protect, (req, res) => {
   res.status(200).json(getOnlineUserIds());
 });
 router.put('/profile', protect, upload.single('avatar'), updateProfile);
-router.put('/change-password', protect, passwordSensitiveLimiter, changePassword);
-router.put('/block/:id', protect, toggleBlockUser);
-router.delete('/account', protect, passwordSensitiveLimiter, deleteAccount);
+router.put(
+  '/change-password',
+  protect,
+  passwordSensitiveLimiter,
+  changePasswordValidation,
+  validate,
+  changePassword,
+);
+router.put('/block/:id', protect, blockUserValidation, validate, toggleBlockUser);
+router.delete(
+  '/account',
+  protect,
+  passwordSensitiveLimiter,
+  deleteAccountValidation,
+  validate,
+  deleteAccount,
+);
 
 // exporter le router
 module.exports = router;
