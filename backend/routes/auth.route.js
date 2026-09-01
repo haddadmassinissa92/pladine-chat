@@ -17,31 +17,43 @@ const { checkAuth } = require('../controllers/auth.controller');
 const { signup, login, logout } = require('../controllers/auth.controller');
 const { protect } = require('../middlewares/auth.middleware');
 
+// Middleware neutre, utilisé à la place des limiteurs en environnement de
+// test, pour que les suites de tests ne se bloquent pas elles-mêmes en
+// enchaînant plusieurs appels rapprochés
+const noLimit = (req, res, next) => next();
+
 // Limiteur pour la connexion : 10 tentatives maximum par adresse IP toutes
 // les 15 minutes. Volontairement plus permissif que pour l'inscription,
 // car un utilisateur légitime peut se tromper de mot de passe plusieurs fois.
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    message:
-      'Trop de tentatives de connexion. Réessaie dans quelques minutes.',
-  },
-});
+const loginLimiter =
+  process.env.NODE_ENV === 'test'
+    ? noLimit
+    : rateLimit({
+        windowMs: 15 * 60 * 1000,
+        max: 10,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: {
+          message:
+            'Trop de tentatives de connexion. Réessaie dans quelques minutes.',
+        },
+      });
 
 // Limiteur pour l'inscription : 5 comptes maximum créés par adresse IP
 // toutes les 60 minutes, pour empêcher la création automatisée de comptes
-const signupLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    message: "Trop de comptes créés depuis cette adresse. Réessaie plus tard.",
-  },
-});
+const signupLimiter =
+  process.env.NODE_ENV === 'test'
+    ? noLimit
+    : rateLimit({
+        windowMs: 60 * 60 * 1000,
+        max: 5,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: {
+          message:
+            "Trop de comptes créés depuis cette adresse. Réessaie plus tard.",
+        },
+      });
 
 // Petit middleware réutilisable : vérifie si les règles de validation
 // définies juste avant (via body(...).xxx()) ont été respectées. Si ce
