@@ -57,6 +57,22 @@ app.get('/', (req, res) => {
   res.json({ message: 'Chat App API en ligne' });
 });
 
+// Route de health check : permet de vérifier rapidement que le serveur
+// répond et que la connexion à la base de données est bien établie. Utile
+// pour un outil de monitoring externe, ou pour garder le serveur éveillé
+// sur un hébergement gratuit qui s'endort après inactivité (ex: Render).
+app.get('/api/health', (req, res) => {
+  // 1 = connecté, les autres valeurs (0, 2, 3) signalent un souci de connexion
+  const isDbConnected = mongoose.connection.readyState === 1;
+
+  res.status(isDbConnected ? 200 : 503).json({
+    status: isDbConnected ? 'ok' : 'degraded',
+    database: isDbConnected ? 'connected' : 'disconnected',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Utiliser les routes api
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
