@@ -11,17 +11,29 @@ const User = require("../models/user.model");
 const Message = require("../models/message.model");
 const logger = require("../logger");
 
-// Fonction d'extraction d'annuaire : récupère l'ensemble des profils inscrits (hors utilisateur connecté),
-// effectue des requêtes croisées pour joindre le dernier message privé et calcule le compteur des éléments non lus
+// Nombre de contacts chargés par page (premier chargement, puis à chaque
+// défilement vers le bas de la liste)
+const CONTACTS_PER_PAGE = 20;
+
+// Fonction d'extraction d'annuaire : récupère les profils inscrits (hors utilisateur connecté)
+// de façon paginée, effectue des requêtes croisées pour joindre le dernier message privé
+// et calcule le compteur des éléments non lus
 exports.getUsersForSidebar = async (req, res) => {
   try {
     // Récupération de l'identifiant de l'utilisateur actif issu du middleware de session
     const loggedInUserId = req.user._id;
 
-    // Extraction de la liste des tiers en excluant les mots de passe de la sélection par sécurité
-    const users = await User.find({ _id: { $ne: loggedInUserId } }).select(
-      "-password",
-    );
+    // Numéro de page demandé (1 par défaut), utilisé pour le défilement infini
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const skip = (page - 1) * CONTACTS_PER_PAGE;
+
+    // Tri stable par nom d'utilisateur, pour que l'ordre des pages reste
+    // cohérent d'un appel à l'autre (indispensable pour une pagination fiable)
+    const users = await User.find({ _id: { $ne: loggedInUserId } })
+      .select("-password")
+      .sort({ username: 1 })
+      .skip(skip)
+      .limit(CONTACTS_PER_PAGE);
 
     // Traitement asynchrone simultané pour enrichir chaque fiche contact avec l'historique récent
     const usersWithLastMessage = await Promise.all(
@@ -52,8 +64,12 @@ exports.getUsersForSidebar = async (req, res) => {
       }),
     );
 
+    // S'il y a exactement autant de résultats que la taille d'une page, il en
+    // reste probablement encore d'autres à charger
+    const hasMore = users.length === CONTACTS_PER_PAGE;
+
     // Envoi de la structure de données finalisée destinée à alimenter la barre latérale du chat
-    res.status(200).json(usersWithLastMessage);
+    res.status(200).json({ users: usersWithLastMessage, hasMore });
   } catch (error) {
     logger.error({ err: error }, "Erreur lors de la récupération des contacts");
     res.status(500).json({ message: "Erreur serveur." });
