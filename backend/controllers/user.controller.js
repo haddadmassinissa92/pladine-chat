@@ -15,9 +15,14 @@ const logger = require("../logger");
 // défilement vers le bas de la liste)
 const CONTACTS_PER_PAGE = 20;
 
+// Échappe les caractères spéciaux d'une chaîne pour l'utiliser sans risque
+// dans une expression régulière
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 // Fonction d'extraction d'annuaire : récupère les profils inscrits (hors utilisateur connecté)
-// de façon paginée, effectue des requêtes croisées pour joindre le dernier message privé
-// et calcule le compteur des éléments non lus
+// de façon paginée, avec une recherche optionnelle par nom d'utilisateur ou email portant sur
+// TOUTE la base (pas seulement les contacts déjà chargés côté client), effectue des requêtes
+// croisées pour joindre le dernier message privé et calcule le compteur des éléments non lus
 exports.getUsersForSidebar = async (req, res) => {
   try {
     // Récupération de l'identifiant de l'utilisateur actif issu du middleware de session
@@ -27,9 +32,19 @@ exports.getUsersForSidebar = async (req, res) => {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const skip = (page - 1) * CONTACTS_PER_PAGE;
 
+    // Construction du filtre : exclut toujours l'utilisateur connecté, et
+    // ajoute une recherche insensible à la casse sur le nom d'utilisateur ou
+    // l'email si un terme de recherche a été fourni
+    const filter = { _id: { $ne: loggedInUserId } };
+    const search = req.query.search?.trim();
+    if (search) {
+      const regex = new RegExp(escapeRegex(search), "i");
+      filter.$or = [{ username: regex }, { email: regex }];
+    }
+
     // Tri stable par nom d'utilisateur, pour que l'ordre des pages reste
     // cohérent d'un appel à l'autre (indispensable pour une pagination fiable)
-    const users = await User.find({ _id: { $ne: loggedInUserId } })
+    const users = await User.find(filter)
       .select("-password")
       .sort({ username: 1 })
       .skip(skip)
