@@ -1,6 +1,7 @@
 const { Server } = require("socket.io");
 const http = require("http");
 const express = require("express");
+const logger = require("./logger");
 
 const app = express();
 const server = http.createServer(app);
@@ -22,7 +23,7 @@ function getReceiverSocketId(userId) {
 }
 
 io.on("connection", (socket) => {
-  console.log("🔌 Connecté :", socket.id);
+  logger.info({ socketId: socket.id }, "Connexion socket établie");
 
   const userId = socket.handshake.query.userId;
   if (userId) {
@@ -48,7 +49,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log("❌ Déconnecté :", socket.id);
+    logger.info({ socketId: socket.id }, "Connexion socket fermée");
     if (userSocketMap[userId] === socket.id) {
       delete userSocketMap[userId];
       io.emit("getOnlineUsers", Object.keys(userSocketMap));
