@@ -107,6 +107,15 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Un appel privé à 2 se transforme en appel de groupe : on prévient
+  // l'autre participant pour qu'il rejoigne lui aussi la nouvelle "salle"
+  socket.on("callUpgradedToGroup", ({ to, groupId, groupName }) => {
+    const targetSocketId = getReceiverSocketId(to);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("callUpgradedToGroup", { groupId, groupName });
+    }
+  });
+
   // --- Signalisation WebRTC pour les appels de groupe (topologie "mesh") ---
   // Chaque participant se connecte directement à chaque autre participant.
   // Le serveur garde en mémoire qui est actuellement "dans la salle" de
