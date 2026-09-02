@@ -20,6 +20,8 @@ const {
   changePassword,
   deleteAccount,
   toggleBlockUser,
+  subscribeToPush,
+  unsubscribeFromPush,
  } = require('../controllers/user.controller');
 
 // fonction qui recupere les utilisateurs connecter
@@ -75,6 +77,14 @@ const blockUserValidation = [
   param('id').isMongoId().withMessage('Utilisateur invalide.'),
 ];
 
+// Règle de validation pour l'abonnement aux notifications push : l'objet
+// de souscription envoyé par le navigateur doit contenir ces trois champs
+const pushSubscribeValidation = [
+  body('endpoint').isURL().withMessage('Souscription push invalide.'),
+  body('keys.p256dh').notEmpty().withMessage('Souscription push invalide.'),
+  body('keys.auth').notEmpty().withMessage('Souscription push invalide.'),
+];
+
 // creation des routes
 router.get('/', protect, getUsersForSidebar);
 router.get('/online', protect, (req, res) => {
@@ -98,6 +108,14 @@ router.delete(
   validate,
   deleteAccount,
 );
+router.post(
+  '/push-subscribe',
+  protect,
+  pushSubscribeValidation,
+  validate,
+  subscribeToPush,
+);
+router.post('/push-unsubscribe', protect, unsubscribeFromPush);
 
 // exporter le router
 module.exports = router;

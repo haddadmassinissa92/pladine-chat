@@ -12,6 +12,7 @@ const logger = require("../logger");
 
 // Récupère l'historique des messages entre l'utilisateur connecté et un autre utilisateur
 const { getReceiverSocketId, io } = require("../socket");
+const { sendPushToUser } = require("../push.service");
 
 // Nombre de messages chargés par page (premier chargement, puis à chaque remontée dans l'historique)
 const MESSAGES_PER_PAGE = 30;
@@ -313,6 +314,14 @@ exports.sendMessage = async (req, res) => {
           if (memberSocketId) {
             io.to(memberSocketId).emit("newMessage", newMessage);
           }
+
+          // Notification push, en plus du socket : arrive même si l'app
+          // n'est pas ouverte (onglet fermé, application en arrière-plan)
+          sendPushToUser(memberId, {
+            title: group.name,
+            body: `${req.user.username} : ${text?.trim() || "📎 Pièce jointe"}`,
+            icon: "/icon-192.png",
+          });
         });
       }
     } else {
@@ -320,6 +329,13 @@ exports.sendMessage = async (req, res) => {
       if (receiverSocketId) {
         io.to(receiverSocketId).emit("newMessage", newMessage);
       }
+
+      // Notification push pour le destinataire, en plus du socket
+      sendPushToUser(receiverId, {
+        title: req.user.username,
+        body: text?.trim() || "📎 Pièce jointe",
+        icon: "/icon-192.png",
+      });
     }
 
     res.status(201).json(newMessage);

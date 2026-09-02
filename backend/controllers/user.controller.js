@@ -9,6 +9,7 @@ const bcrypt = require("bcryptjs");
 // la gestion des comptes et de l'historique des discussions
 const User = require("../models/user.model");
 const Message = require("../models/message.model");
+const PushSubscription = require("../models/pushSubscription.model");
 const logger = require("../logger");
 
 // Nombre de contacts chargés par page (premier chargement, puis à chaque
@@ -230,6 +231,43 @@ exports.toggleBlockUser = async (req, res) => {
       .json({ blockedUsers: me.blockedUsers, blocked: !isBlocked });
   } catch (error) {
     logger.error({ err: error }, "Erreur lors du blocage/déblocage d'un utilisateur");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Enregistre (ou met à jour) la souscription push de l'appareil/navigateur
+// actuel pour l'utilisateur connecté, afin de pouvoir lui envoyer des
+// notifications même quand l'application est fermée
+exports.subscribeToPush = async (req, res) => {
+  try {
+    const { endpoint, keys } = req.body;
+
+    if (!endpoint || !keys?.p256dh || !keys?.auth) {
+      return res.status(400).json({ message: "Souscription push invalide." });
+    }
+
+    await PushSubscription.findOneAndUpdate(
+      { endpoint },
+      { user: req.user._id, endpoint, keys },
+      { upsert: true, new: true },
+    );
+
+    res.status(200).json({ message: "Abonné aux notifications push." });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de l'abonnement aux notifications push");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Supprime la souscription push de l'appareil/navigateur actuel (l'utilisateur
+// a désactivé les notifications)
+exports.unsubscribeFromPush = async (req, res) => {
+  try {
+    const { endpoint } = req.body;
+    await PushSubscription.deleteOne({ endpoint, user: req.user._id });
+    res.status(200).json({ message: "Désabonné des notifications push." });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors du désabonnement des notifications push");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
