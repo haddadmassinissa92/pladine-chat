@@ -25,8 +25,14 @@ const generateTokenAndSetCookie = (userId, res) => {
 };
 
 // Fonction d'inscription : réceptionne les identifiants, vérifie les doublons en base de données,
-// hache le mot de passe pour la sécurité, enregistre le nouveau profil (non vérifié) et lui envoie
-// un email de confirmation. Le compte ne peut pas se connecter tant que l'email n'est pas confirmé.
+// hache le mot de passe pour la sécurité, enregistre le nouveau profil et connecte directement.
+//
+// NOTE TEMPORAIRE : la vérification d'email par lien (voir verifyEmail plus
+// bas) est prête côté code, mais désactivée pour l'instant — Resend, sans
+// domaine vérifié, ne peut envoyer qu'à l'adresse du compte Resend
+// lui-même, ce qui bloquait la création de comptes de test. Dès qu'un nom
+// de domaine est vérifié sur Resend, il suffira de remettre le bloc
+// commenté ci-dessous pour réactiver la vérification obligatoire.
 exports.signup = async (req, res) => {
   try {
     // Extraction des informations envoyées par le formulaire d'inscription
@@ -43,28 +49,26 @@ exports.signup = async (req, res) => {
     // Cryptage irréversible du mot de passe brut avant enregistrement
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Jeton de vérification d'email, valable 24 heures
-    const verificationToken = crypto.randomBytes(32).toString("hex");
-    const verificationTokenExpires = Date.now() + 24 * 60 * 60 * 1000;
-
-    // Insertion du nouvel utilisateur dans la base de données, non vérifié
+    // Insertion du nouvel utilisateur dans la base de données, déjà
+    // considéré comme vérifié tant que la vérification par email est
+    // désactivée (voir note ci-dessus)
     const newUser = await User.create({
       username,
       email,
       password: hashedPassword,
-      isVerified: false,
-      verificationToken,
-      verificationTokenExpires,
+      isVerified: true,
     });
 
-    await sendVerificationEmail(newUser, verificationToken);
+    // Génération instantanée de la session active du nouvel inscrit
+    generateTokenAndSetCookie(newUser._id, res);
 
-    // Pas de session ouverte tout de suite : le compte doit d'abord être
-    // confirmé par email avant de pouvoir se connecter
+    // Renvoi des informations publiques du compte créé sans le mot de passe
     res.status(201).json({
-      message:
-        "Compte créé ! Vérifie ta boîte mail pour confirmer ton adresse et activer ton compte.",
+      _id: newUser._id,
+      username: newUser.username,
       email: newUser.email,
+      avatar: newUser.avatar,
+      mutedConversations: newUser.mutedConversations,
     });
   } catch (error) {
     logger.error({ err: error }, "Erreur lors de l'inscription");
@@ -161,12 +165,13 @@ exports.login = async (req, res) => {
     }
 
     // Le compte doit être confirmé par email avant de pouvoir se connecter
-    if (!user.isVerified) {
-      return res.status(403).json({
-        message: "Confirme ton adresse email avant de te connecter (vérifie ta boîte mail).",
-        needsVerification: true,
-      });
-    }
+    // (désactivé temporairement — voir la note dans signup ci-dessus)
+    // if (!user.isVerified) {
+    //   return res.status(403).json({
+    //     message: "Confirme ton adresse email avant de te connecter (vérifie ta boîte mail).",
+    //     needsVerification: true,
+    //   });
+    // }
 
     // Renouvellement et attribution du cookie de session d'authentification
     generateTokenAndSetCookie(user._id, res);
