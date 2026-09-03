@@ -427,6 +427,48 @@ exports.deleteMessage = async (req, res) => {
   }
 };
 
+// Vide entièrement une conversation (tous les messages, de tous les
+// participants, pas seulement les siens) : contrairement à deleteMessage
+// ci-dessus, réservé à ses propres messages. L'autorisation repose sur
+// buildBaseFilter, qui ne renvoie que les messages où l'utilisateur est
+// lui-même participant (conversation privée) ou membre (groupe) — personne
+// ne peut donc vider une conversation à laquelle il n'appartient pas.
+exports.deleteConversation = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isGroup } = req.query;
+    const myId = req.user._id;
+
+    const baseFilter = await buildBaseFilter(id, isGroup, myId);
+    const result = await Message.deleteMany(baseFilter);
+
+    // Prévient l'autre côté (ou tous les membres du groupe) que la
+    // conversation vient d'être vidée, pour qu'ils rafraîchissent leur écran
+    if (isGroup === "true") {
+      const group = await Group.findById(id).select("members");
+      group?.members.forEach((memberId) => {
+        const socketId = getReceiverSocketId(memberId.toString());
+        if (socketId) {
+          io.to(socketId).emit("conversationCleared", { groupId: id });
+        }
+      });
+    } else {
+      const socketId = getReceiverSocketId(id);
+      if (socketId) {
+        io.to(socketId).emit("conversationCleared", { senderId: myId.toString() });
+      }
+    }
+
+    res.status(200).json({
+      message: "Conversation vidée.",
+      deletedCount: result.deletedCount,
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de la suppression d'une conversation");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
 // Modifie un message
 exports.editMessage = async (req, res) => {
   try {

@@ -23,6 +23,7 @@ const {
     sendMessage, 
     markMessagesAsRead ,
     deleteMessage,
+    deleteConversation,
     editMessage,
     reactToMessage,
     searchMessages
@@ -123,6 +124,7 @@ router.post(
   sendMessage,
 );
 router.delete('/:id', protect, deleteMessage);
+router.delete('/conversation/:id', protect, deleteConversation);
 router.put('/read/:id', protect, markMessagesAsRead);
 router.put('/:id', protect, editMessageValidation, validate, editMessage);
 router.put('/react/:id', protect, reactValidation, validate, reactToMessage);
