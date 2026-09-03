@@ -65,6 +65,16 @@ const userSchema = new mongoose.Schema(
       },
     ],
 
+    // Demandes de contact reçues, en attente d'acceptation ou de refus
+    // (l'ajout d'un contact n'est donc plus instantané : il faut que
+    // la personne accepte pour devenir contact mutuel des deux côtés)
+    incomingContactRequests: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
     // Identifiants (contact ou groupe) pour lesquels les notifications push
     // sont coupées. Stocké côté serveur : c'est le serveur qui décide
     // d'envoyer ou non une notification push lors d'un nouveau message.

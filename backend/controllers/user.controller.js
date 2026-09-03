@@ -11,6 +11,7 @@ const User = require("../models/user.model");
 const Message = require("../models/message.model");
 const PushSubscription = require("../models/pushSubscription.model");
 const logger = require("../logger");
+const { getReceiverSocketId, io } = require("../socket");
 
 // Nombre de contacts chargés par page (premier chargement, puis à chaque
 // défilement vers le bas de la liste)
@@ -116,9 +117,16 @@ exports.discoverUsers = async (req, res) => {
     const currentUser = await User.findById(loggedInUserId).select("contacts");
     const alreadyAddedIds = currentUser?.contacts || [];
 
+    // Personnes à qui on a déjà envoyé une demande, pas encore répondue
+    // (la demande vit dans la liste d'attente DE LA CIBLE, pas la nôtre)
+    const pendingTargets = await User.find({
+      incomingContactRequests: loggedInUserId,
+    }).select("_id");
+    const pendingIds = pendingTargets.map((u) => u._id);
+
     const regex = new RegExp(escapeRegex(search), "i");
     const users = await User.find({
-      _id: { $ne: loggedInUserId, $nin: alreadyAddedIds },
+      _id: { $ne: loggedInUserId, $nin: [...alreadyAddedIds, ...pendingIds] },
       $or: [{ username: regex }, { email: regex }],
     })
       .select("username email avatar")
@@ -136,27 +144,107 @@ exports.discoverUsers = async (req, res) => {
 // a lui-même ajoutés, indépendamment de si l'autre personne l'a ajouté en
 // retour. Ça n'affecte que la visibilité dans la liste, pas la possibilité
 // d'échanger des messages (déjà géré séparément par le blocage).
+// Envoie une demande de contact : n'ajoute rien tout de suite, place la
+// demande dans la liste d'attente de la personne visée, qui devra
+// l'accepter pour que le contact devienne mutuel des deux côtés
 exports.addContact = async (req, res) => {
   try {
     const { id } = req.params;
+    const myId = req.user._id;
 
-    if (id === req.user._id.toString()) {
+    if (id === myId.toString()) {
       return res.status(400).json({ message: "Impossible de s'ajouter soi-même." });
     }
 
-    const targetExists = await User.exists({ _id: id });
-    if (!targetExists) {
+    const target = await User.findById(id).select("contacts incomingContactRequests");
+    if (!target) {
       return res.status(404).json({ message: "Utilisateur introuvable." });
     }
 
+    // Déjà contact, ou demande déjà envoyée : rien à refaire
+    const alreadyContact = target.contacts.some((c) => c.toString() === myId.toString());
+    if (alreadyContact) {
+      return res.status(400).json({ message: "Déjà dans tes contacts." });
+    }
+
     await User.updateOne(
-      { _id: req.user._id },
-      { $addToSet: { contacts: id } },
+      { _id: id },
+      { $addToSet: { incomingContactRequests: myId } },
     );
+
+    // Prévient la personne en temps réel, si elle est connectée
+    const targetSocketId = getReceiverSocketId(id);
+    if (targetSocketId) {
+      const me = await User.findById(myId).select("username avatar");
+      io.to(targetSocketId).emit("contactRequestReceived", {
+        _id: myId,
+        username: me.username,
+        avatar: me.avatar,
+      });
+    }
+
+    res.status(200).json({ message: "Demande de contact envoyée." });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de l'envoi d'une demande de contact");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Liste des demandes de contact reçues, en attente d'une réponse
+exports.getContactRequests = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id)
+      .select("incomingContactRequests")
+      .populate("incomingContactRequests", "username avatar email");
+
+    res.status(200).json({ requests: user?.incomingContactRequests || [] });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de la récupération des demandes de contact");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Accepte une demande de contact reçue : le contact devient mutuel, ajouté
+// dans la liste des deux personnes
+exports.acceptContactRequest = async (req, res) => {
+  try {
+    const { id } = req.params; // id de la personne qui a envoyé la demande
+    const myId = req.user._id;
+
+    await Promise.all([
+      User.updateOne(
+        { _id: myId },
+        { $pull: { incomingContactRequests: id }, $addToSet: { contacts: id } },
+      ),
+      User.updateOne({ _id: id }, { $addToSet: { contacts: myId } }),
+    ]);
+
+    // Prévient l'auteur de la demande en temps réel, pour que son propre
+    // affichage se mette à jour tout de suite
+    const requesterSocketId = getReceiverSocketId(id);
+    if (requesterSocketId) {
+      io.to(requesterSocketId).emit("contactRequestAccepted", { _id: myId });
+    }
 
     res.status(200).json({ message: "Contact ajouté." });
   } catch (error) {
-    logger.error({ err: error }, "Erreur lors de l'ajout d'un contact");
+    logger.error({ err: error }, "Erreur lors de l'acceptation d'une demande de contact");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Refuse une demande de contact reçue : la retire simplement de la liste
+// d'attente, aucun contact n'est ajouté
+exports.declineContactRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await User.updateOne(
+      { _id: req.user._id },
+      { $pull: { incomingContactRequests: id } },
+    );
+    res.status(200).json({ message: "Demande refusée." });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors du refus d'une demande de contact");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };

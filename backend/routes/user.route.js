@@ -26,6 +26,9 @@ const {
   discoverUsers,
   addContact,
   removeContact,
+  getContactRequests,
+  acceptContactRequest,
+  declineContactRequest,
  } = require('../controllers/user.controller');
 
 // fonction qui recupere les utilisateurs connecter
@@ -94,6 +97,9 @@ router.get('/', protect, getUsersForSidebar);
 router.get('/discover', protect, discoverUsers);
 router.post('/contacts/:id', protect, blockUserValidation, validate, addContact);
 router.delete('/contacts/:id', protect, blockUserValidation, validate, removeContact);
+router.get('/contact-requests', protect, getContactRequests);
+router.post('/contact-requests/:id/accept', protect, blockUserValidation, validate, acceptContactRequest);
+router.post('/contact-requests/:id/decline', protect, blockUserValidation, validate, declineContactRequest);
 router.get('/online', protect, (req, res) => {
   res.status(200).json(getOnlineUserIds());
 });
