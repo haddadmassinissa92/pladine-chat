@@ -99,6 +99,16 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Signale explicitement à l'autre participant qu'on a coupé/réactivé sa
+  // caméra, pour qu'il affiche notre avatar plutôt qu'un écran noir sans
+  // explication pendant que notre caméra est coupée
+  socket.on("cameraToggled", ({ to, isCameraOff }) => {
+    const targetSocketId = getReceiverSocketId(to);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("cameraToggled", { isCameraOff });
+    }
+  });
+
   // L'un des deux participants raccroche, à n'importe quel moment de l'appel
   socket.on("endCall", ({ to }) => {
     const targetSocketId = getReceiverSocketId(to);
