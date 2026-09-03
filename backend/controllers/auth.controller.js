@@ -3,8 +3,10 @@
 // Importation des outils de hachage de mot de passe, de gestion des jetons (JWT) et du modèle utilisateur
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const User = require("../models/user.model");
 const logger = require("../logger");
+const { sendVerificationEmail, sendPasswordResetEmail } = require("../email.service");
 
 // Fonction utilitaire interne chargée de créer un jeton de session chiffré (valable 7 jours)
 // et de l'injecter directement dans les cookies de réponse du navigateur pour sécuriser le stockage
@@ -23,7 +25,8 @@ const generateTokenAndSetCookie = (userId, res) => {
 };
 
 // Fonction d'inscription : réceptionne les identifiants, vérifie les doublons en base de données,
-// hache le mot de passe pour la sécurité, enregistre le nouveau profil et connecte automatiquement l'utilisateur
+// hache le mot de passe pour la sécurité, enregistre le nouveau profil (non vérifié) et lui envoie
+// un email de confirmation. Le compte ne peut pas se connecter tant que l'email n'est pas confirmé.
 exports.signup = async (req, res) => {
   try {
     // Extraction des informations envoyées par le formulaire d'inscription
@@ -40,26 +43,97 @@ exports.signup = async (req, res) => {
     // Cryptage irréversible du mot de passe brut avant enregistrement
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Insertion du nouvel utilisateur dans la base de données
+    // Jeton de vérification d'email, valable 24 heures
+    const verificationToken = crypto.randomBytes(32).toString("hex");
+    const verificationTokenExpires = Date.now() + 24 * 60 * 60 * 1000;
+
+    // Insertion du nouvel utilisateur dans la base de données, non vérifié
     const newUser = await User.create({
       username,
       email,
       password: hashedPassword,
+      isVerified: false,
+      verificationToken,
+      verificationTokenExpires,
     });
 
-    // Génération instantanée de la session active du nouvel inscrit
-    generateTokenAndSetCookie(newUser._id, res);
+    await sendVerificationEmail(newUser, verificationToken);
 
-    // Renvoi des informations publiques du compte créé sans le mot de passe
+    // Pas de session ouverte tout de suite : le compte doit d'abord être
+    // confirmé par email avant de pouvoir se connecter
     res.status(201).json({
-      _id: newUser._id,
-      username: newUser.username,
+      message:
+        "Compte créé ! Vérifie ta boîte mail pour confirmer ton adresse et activer ton compte.",
       email: newUser.email,
-      avatar: newUser.avatar,
     });
   } catch (error) {
     logger.error({ err: error }, "Erreur lors de l'inscription");
     res.status(500).json({ message: "Erreur serveur lors de l'inscription." });
+  }
+};
+
+// Confirme l'adresse email via le jeton reçu par email, active le compte,
+// puis ouvre directement une session (l'utilisateur n'a pas besoin de se
+// reconnecter juste après avoir confirmé son email)
+exports.verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const user = await User.findOne({
+      verificationToken: token,
+      verificationTokenExpires: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        message: "Ce lien de confirmation est invalide ou a expiré.",
+      });
+    }
+
+    user.isVerified = true;
+    user.verificationToken = null;
+    user.verificationTokenExpires = null;
+    await user.save();
+
+    generateTokenAndSetCookie(user._id, res);
+
+    res.status(200).json({
+      _id: user._id,
+      username: user.username,
+      email: user.email,
+      avatar: user.avatar,
+      mutedConversations: user.mutedConversations,
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de la vérification de l'email");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Renvoie un nouvel email de confirmation (compte créé mais email jamais
+// reçu ou perdu). Répond toujours le même message générique, qu'un compte
+// existe ou non avec cette adresse, pour ne pas laisser deviner quels
+// emails sont déjà enregistrés.
+exports.resendVerificationEmail = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+
+    if (user && !user.isVerified) {
+      const verificationToken = crypto.randomBytes(32).toString("hex");
+      user.verificationToken = verificationToken;
+      user.verificationTokenExpires = Date.now() + 24 * 60 * 60 * 1000;
+      await user.save();
+      await sendVerificationEmail(user, verificationToken);
+    }
+
+    res.status(200).json({
+      message:
+        "Si un compte existe avec cette adresse et n'est pas encore confirmé, un nouvel email vient d'être envoyé.",
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors du renvoi de l'email de vérification");
+    res.status(500).json({ message: "Erreur serveur." });
   }
 };
 
@@ -86,6 +160,14 @@ exports.login = async (req, res) => {
         .json({ message: "Email ou mot de passe incorrect." });
     }
 
+    // Le compte doit être confirmé par email avant de pouvoir se connecter
+    if (!user.isVerified) {
+      return res.status(403).json({
+        message: "Confirme ton adresse email avant de te connecter (vérifie ta boîte mail).",
+        needsVerification: true,
+      });
+    }
+
     // Renouvellement et attribution du cookie de session d'authentification
     generateTokenAndSetCookie(user._id, res);
 
@@ -100,6 +182,61 @@ exports.login = async (req, res) => {
   } catch (error) {
     logger.error({ err: error }, "Erreur lors de la connexion");
     res.status(500).json({ message: "Erreur serveur lors de la connexion." });
+  }
+};
+
+// Envoie un email de réinitialisation de mot de passe. Répond toujours le
+// même message générique, qu'un compte existe ou non avec cette adresse.
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+
+    if (user) {
+      const resetToken = crypto.randomBytes(32).toString("hex");
+      user.resetPasswordToken = resetToken;
+      user.resetPasswordExpires = Date.now() + 60 * 60 * 1000; // 1 heure
+      await user.save();
+      await sendPasswordResetEmail(user, resetToken);
+    }
+
+    res.status(200).json({
+      message:
+        "Si un compte existe avec cette adresse, un email de réinitialisation vient d'être envoyé.",
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de la demande de réinitialisation");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Valide le jeton reçu par email et enregistre le nouveau mot de passe.
+// L'utilisateur doit ensuite se reconnecter normalement.
+exports.resetPassword = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    const user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpires: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        message: "Ce lien de réinitialisation est invalide ou a expiré.",
+      });
+    }
+
+    user.password = await bcrypt.hash(password, 10);
+    user.resetPasswordToken = null;
+    user.resetPasswordExpires = null;
+    await user.save();
+
+    res.status(200).json({ message: "Mot de passe réinitialisé. Tu peux te reconnecter." });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de la réinitialisation du mot de passe");
+    res.status(500).json({ message: "Erreur serveur." });
   }
 };
 

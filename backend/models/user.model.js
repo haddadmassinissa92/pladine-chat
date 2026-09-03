@@ -62,6 +62,32 @@ const userSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+
+    // Vérification d'adresse email : le compte est inutilisable (connexion
+    // bloquée) tant que ce n'est pas confirmé via le lien reçu par email
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+    verificationToken: {
+      type: String,
+      default: null,
+    },
+    verificationTokenExpires: {
+      type: Date,
+      default: null,
+    },
+
+    // Réinitialisation de mot de passe (lien envoyé par email, valable
+    // une heure)
+    resetPasswordToken: {
+      type: String,
+      default: null,
+    },
+    resetPasswordExpires: {
+      type: Date,
+      default: null,
+    },
   },
   // Injection automatique des propriétés temporelles de création et d'édition du compte
   { timestamps: true }

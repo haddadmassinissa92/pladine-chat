@@ -14,7 +14,15 @@ const { body, validationResult } = require('express-validator');
 
 // Importation des fonctions de controller d'accès et du middleware de protection de session
 const { checkAuth } = require('../controllers/auth.controller');
-const { signup, login, logout } = require('../controllers/auth.controller');
+const {
+  signup,
+  login,
+  logout,
+  verifyEmail,
+  resendVerificationEmail,
+  forgotPassword,
+  resetPassword,
+} = require('../controllers/auth.controller');
 const { protect } = require('../middlewares/auth.middleware');
 
 // Middleware neutre, utilisé à la place des limiteurs en environnement de
@@ -52,6 +60,23 @@ const signupLimiter =
         message: {
           message:
             "Trop de comptes créés depuis cette adresse. Réessaie plus tard.",
+        },
+      });
+
+// Limiteur pour les emails de vérification/réinitialisation : 5 demandes
+// maximum par adresse IP toutes les 15 minutes. Protège le quota d'envoi
+// d'emails (limité côté Resend) contre un abus, et empêche de spammer la
+// boîte mail de quelqu'un d'autre en boucle.
+const emailActionLimiter =
+  process.env.NODE_ENV === 'test'
+    ? noLimit
+    : rateLimit({
+        windowMs: 15 * 60 * 1000,
+        max: 5,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: {
+          message: 'Trop de demandes. Réessaie dans quelques minutes.',
         },
       });
 
@@ -96,11 +121,33 @@ const loginValidation = [
   body('password').notEmpty().withMessage('Le mot de passe est requis.'),
 ];
 
+// Règles de validation pour demander un renvoi d'email de vérification ou
+// une réinitialisation de mot de passe : juste une adresse email valide
+const emailOnlyValidation = [
+  body('email').trim().isEmail().withMessage('Adresse email invalide.').normalizeEmail(),
+];
+
+// Règles de validation pour définir un nouveau mot de passe (après clic sur
+// le lien de réinitialisation reçu par email)
+const newPasswordValidation = [
+  body('password')
+    .isLength({ min: 6 })
+    .withMessage('Le mot de passe doit contenir au moins 6 caractères.'),
+];
+
 // Enregistrement des points d'accès (endpoints) publics gérant l'inscription, 
 // la connexion et la déconnexion
 router.post('/signup', signupLimiter, signupValidation, validate, signup);
 router.post('/login', loginLimiter, loginValidation, validate, login);
 router.post('/logout', logout);
+
+// Confirmation d'adresse email, et renvoi de l'email si besoin
+router.get('/verify-email/:token', verifyEmail);
+router.post('/resend-verification', emailActionLimiter, emailOnlyValidation, validate, resendVerificationEmail);
+
+// Mot de passe oublié : demande du lien, puis définition du nouveau mot de passe
+router.post('/forgot-password', emailActionLimiter, emailOnlyValidation, validate, forgotPassword);
+router.post('/reset-password/:token', emailActionLimiter, newPasswordValidation, validate, resetPassword);
 
 // Enregistrement du point d'accès sécurisé permettant au client de 
 // valider la persistance de sa session active
