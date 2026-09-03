@@ -95,6 +95,7 @@ exports.login = async (req, res) => {
       username: user.username,
       email: user.email,
       avatar: user.avatar,
+      mutedConversations: user.mutedConversations,
     });
   } catch (error) {
     logger.error({ err: error }, "Erreur lors de la connexion");

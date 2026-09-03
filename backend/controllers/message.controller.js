@@ -197,12 +197,16 @@ exports.sendMessage = async (req, res) => {
     const senderId = req.user._id;
 
     // Pour une conversation privée (pas un groupe), on vérifie qu'aucune des deux
-    // personnes n'a bloqué l'autre avant d'autoriser l'envoi
+    // personnes n'a bloqué l'autre avant d'autoriser l'envoi. On récupère aussi
+    // ses préférences de notification (mutedConversations), réutilisées plus
+    // bas au moment d'envoyer (ou non) la notification push.
+    let receiverMutedConversations = [];
     if (!groupId) {
       const [sender, receiver] = await Promise.all([
         User.findById(senderId).select("blockedUsers"),
-        User.findById(receiverId).select("blockedUsers"),
+        User.findById(receiverId).select("blockedUsers mutedConversations"),
       ]);
+      receiverMutedConversations = receiver?.mutedConversations || [];
 
       const senderBlockedReceiver = sender?.blockedUsers.some(
         (u) => u.toString() === receiverId,
@@ -308,20 +312,36 @@ exports.sendMessage = async (req, res) => {
           });
         }
       } else {
+        // Préférences de notification de tous les membres, récupérées en une
+        // seule requête, pour savoir qui a coupé les notifications de ce groupe
+        const memberDocs = await User.find({
+          _id: { $in: group.members },
+        }).select("mutedConversations");
+        const mutedByMemberId = new Map(
+          memberDocs.map((u) => [u._id.toString(), u.mutedConversations || []]),
+        );
+
         group.members.forEach((memberId) => {
           if (memberId.toString() === senderId.toString()) return;
-          const memberSocketId = getReceiverSocketId(memberId.toString());
+          const memberIdStr = memberId.toString();
+          const memberSocketId = getReceiverSocketId(memberIdStr);
           if (memberSocketId) {
             io.to(memberSocketId).emit("newMessage", newMessage);
           }
 
           // Notification push, en plus du socket : arrive même si l'app
-          // n'est pas ouverte (onglet fermé, application en arrière-plan)
-          sendPushToUser(memberId, {
-            title: group.name,
-            body: `${req.user.username} : ${text?.trim() || "📎 Pièce jointe"}`,
-            icon: "/icon-192.png",
-          });
+          // n'est pas ouverte (onglet fermé, application en arrière-plan).
+          // Sautée si ce membre a coupé les notifications de ce groupe.
+          const isMutedByMember = (mutedByMemberId.get(memberIdStr) || []).includes(
+            group._id.toString(),
+          );
+          if (!isMutedByMember) {
+            sendPushToUser(memberId, {
+              title: group.name,
+              body: `${req.user.username} : ${text?.trim() || "📎 Pièce jointe"}`,
+              icon: "/icon-192.png",
+            });
+          }
         });
       }
     } else {
@@ -330,12 +350,16 @@ exports.sendMessage = async (req, res) => {
         io.to(receiverSocketId).emit("newMessage", newMessage);
       }
 
-      // Notification push pour le destinataire, en plus du socket
-      sendPushToUser(receiverId, {
-        title: req.user.username,
-        body: text?.trim() || "📎 Pièce jointe",
-        icon: "/icon-192.png",
-      });
+      // Notification push pour le destinataire, en plus du socket — sautée
+      // s'il a coupé les notifications de cette conversation
+      const isMutedByReceiver = receiverMutedConversations.includes(senderId.toString());
+      if (!isMutedByReceiver) {
+        sendPushToUser(receiverId, {
+          title: req.user.username,
+          body: text?.trim() || "📎 Pièce jointe",
+          icon: "/icon-192.png",
+        });
+      }
     }
 
     res.status(201).json(newMessage);

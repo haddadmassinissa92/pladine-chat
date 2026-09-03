@@ -22,6 +22,7 @@ const {
   toggleBlockUser,
   subscribeToPush,
   unsubscribeFromPush,
+  toggleMuteConversation,
  } = require('../controllers/user.controller');
 
 // fonction qui recupere les utilisateurs connecter
@@ -116,6 +117,7 @@ router.post(
   subscribeToPush,
 );
 router.post('/push-unsubscribe', protect, unsubscribeFromPush);
+router.put('/mute/:id', protect, toggleMuteConversation);
 
 // exporter le router
 module.exports = router;

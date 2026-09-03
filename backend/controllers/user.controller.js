@@ -271,3 +271,27 @@ exports.unsubscribeFromPush = async (req, res) => {
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
+
+// Coupe ou réactive les notifications (push et temps réel) pour une
+// conversation précise (l'id d'un contact ou d'un groupe). Stocké côté
+// serveur (contrairement au fond d'écran, purement local) car c'est le
+// serveur qui décide d'envoyer ou non une notification push.
+exports.toggleMuteConversation = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(req.user._id);
+
+    const alreadyMuted = user.mutedConversations.includes(id);
+    if (alreadyMuted) {
+      user.mutedConversations = user.mutedConversations.filter((c) => c !== id);
+    } else {
+      user.mutedConversations.push(id);
+    }
+    await user.save();
+
+    res.status(200).json({ muted: !alreadyMuted });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors du changement de statut muet");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};

@@ -54,6 +54,14 @@ const userSchema = new mongoose.Schema(
         ref: "User",
       },
     ],
+
+    // Identifiants (contact ou groupe) pour lesquels les notifications push
+    // sont coupées. Stocké côté serveur : c'est le serveur qui décide
+    // d'envoyer ou non une notification push lors d'un nouveau message.
+    mutedConversations: {
+      type: [String],
+      default: [],
+    },
   },
   // Injection automatique des propriétés temporelles de création et d'édition du compte
   { timestamps: true }
