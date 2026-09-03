@@ -23,6 +23,9 @@ const {
   subscribeToPush,
   unsubscribeFromPush,
   toggleMuteConversation,
+  discoverUsers,
+  addContact,
+  removeContact,
  } = require('../controllers/user.controller');
 
 // fonction qui recupere les utilisateurs connecter
@@ -88,6 +91,9 @@ const pushSubscribeValidation = [
 
 // creation des routes
 router.get('/', protect, getUsersForSidebar);
+router.get('/discover', protect, discoverUsers);
+router.post('/contacts/:id', protect, blockUserValidation, validate, addContact);
+router.delete('/contacts/:id', protect, blockUserValidation, validate, removeContact);
 router.get('/online', protect, (req, res) => {
   res.status(200).json(getOnlineUserIds());
 });

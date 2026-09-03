@@ -55,6 +55,16 @@ const userSchema = new mongoose.Schema(
       },
     ],
 
+    // Contacts ajoutés par cet utilisateur : seuls ces profils apparaissent
+    // dans sa liste de conversations privées (chacun voit uniquement les
+    // contacts qu'il a lui-même ajoutés, pas l'annuaire complet des inscrits)
+    contacts: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
     // Identifiants (contact ou groupe) pour lesquels les notifications push
     // sont coupées. Stocké côté serveur : c'est le serveur qui décide
     // d'envoyer ou non une notification push lors d'un nouveau message.

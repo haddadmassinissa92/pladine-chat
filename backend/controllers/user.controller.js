@@ -20,10 +20,11 @@ const CONTACTS_PER_PAGE = 20;
 // dans une expression régulière
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// Fonction d'extraction d'annuaire : récupère les profils inscrits (hors utilisateur connecté)
-// de façon paginée, avec une recherche optionnelle par nom d'utilisateur ou email portant sur
-// TOUTE la base (pas seulement les contacts déjà chargés côté client), effectue des requêtes
-// croisées pour joindre le dernier message privé et calcule le compteur des éléments non lus
+// Fonction d'extraction d'annuaire : récupère les profils des CONTACTS déjà
+// ajoutés par l'utilisateur connecté (pas tout l'annuaire des inscrits), de
+// façon paginée, avec une recherche optionnelle par nom d'utilisateur ou
+// email portant sur ces contacts uniquement, effectue des requêtes croisées
+// pour joindre le dernier message privé et calcule le compteur des éléments non lus
 exports.getUsersForSidebar = async (req, res) => {
   try {
     // Récupération de l'identifiant de l'utilisateur actif issu du middleware de session
@@ -33,10 +34,16 @@ exports.getUsersForSidebar = async (req, res) => {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const skip = (page - 1) * CONTACTS_PER_PAGE;
 
-    // Construction du filtre : exclut toujours l'utilisateur connecté, et
-    // ajoute une recherche insensible à la casse sur le nom d'utilisateur ou
-    // l'email si un terme de recherche a été fourni
-    const filter = { _id: { $ne: loggedInUserId } };
+    // Liste des contacts ajoutés par l'utilisateur connecté : seuls ces
+    // profils peuvent apparaître dans sa liste de conversations
+    const currentUser = await User.findById(loggedInUserId).select("contacts");
+    const contactIds = currentUser?.contacts || [];
+
+    // Construction du filtre : limité aux contacts ajoutés, et ajoute une
+    // recherche insensible à la casse sur le nom d'utilisateur ou l'email
+    // si un terme de recherche a été fourni (filtre alors ces contacts,
+    // ne cherche jamais dans l'annuaire complet des inscrits)
+    const filter = { _id: { $in: contactIds } };
     const search = req.query.search?.trim();
     if (search) {
       const regex = new RegExp(escapeRegex(search), "i");
@@ -88,6 +95,85 @@ exports.getUsersForSidebar = async (req, res) => {
     res.status(200).json({ users: usersWithLastMessage, hasMore });
   } catch (error) {
     logger.error({ err: error }, "Erreur lors de la récupération des contacts");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Recherche dans l'annuaire COMPLET des inscrits (pas seulement les
+// contacts déjà ajoutés), pour permettre à un utilisateur de trouver de
+// nouvelles personnes à ajouter. Exige un terme de recherche non vide, pour
+// éviter de reproduire le problème inverse (afficher tout le monde par
+// défaut) — on ne peut trouver que ce qu'on cherche explicitement.
+exports.discoverUsers = async (req, res) => {
+  try {
+    const loggedInUserId = req.user._id;
+    const search = req.query.search?.trim();
+
+    if (!search) {
+      return res.status(200).json({ users: [] });
+    }
+
+    const currentUser = await User.findById(loggedInUserId).select("contacts");
+    const alreadyAddedIds = currentUser?.contacts || [];
+
+    const regex = new RegExp(escapeRegex(search), "i");
+    const users = await User.find({
+      _id: { $ne: loggedInUserId, $nin: alreadyAddedIds },
+      $or: [{ username: regex }, { email: regex }],
+    })
+      .select("username email avatar")
+      .limit(15);
+
+    res.status(200).json({ users });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de la recherche dans l'annuaire");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Ajoute un profil à ses propres contacts. Volontairement à sens unique
+// (comme demandé) : chacun voit dans sa liste uniquement les contacts qu'il
+// a lui-même ajoutés, indépendamment de si l'autre personne l'a ajouté en
+// retour. Ça n'affecte que la visibilité dans la liste, pas la possibilité
+// d'échanger des messages (déjà géré séparément par le blocage).
+exports.addContact = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (id === req.user._id.toString()) {
+      return res.status(400).json({ message: "Impossible de s'ajouter soi-même." });
+    }
+
+    const targetExists = await User.exists({ _id: id });
+    if (!targetExists) {
+      return res.status(404).json({ message: "Utilisateur introuvable." });
+    }
+
+    await User.updateOne(
+      { _id: req.user._id },
+      { $addToSet: { contacts: id } },
+    );
+
+    res.status(200).json({ message: "Contact ajouté." });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de l'ajout d'un contact");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Retire un profil de ses propres contacts (n'affecte que sa propre liste)
+exports.removeContact = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await User.updateOne(
+      { _id: req.user._id },
+      { $pull: { contacts: id } },
+    );
+
+    res.status(200).json({ message: "Contact retiré." });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors du retrait d'un contact");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
