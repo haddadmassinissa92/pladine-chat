@@ -69,6 +69,7 @@ exports.signup = async (req, res) => {
       email: newUser.email,
       avatar: newUser.avatar,
       mutedConversations: newUser.mutedConversations,
+      createdAt: newUser.createdAt,
     });
   } catch (error) {
     logger.error({ err: error }, "Erreur lors de l'inscription");
@@ -107,6 +108,7 @@ exports.verifyEmail = async (req, res) => {
       email: user.email,
       avatar: user.avatar,
       mutedConversations: user.mutedConversations,
+      createdAt: user.createdAt,
     });
   } catch (error) {
     logger.error({ err: error }, "Erreur lors de la vérification de l'email");
@@ -183,6 +185,7 @@ exports.login = async (req, res) => {
       email: user.email,
       avatar: user.avatar,
       mutedConversations: user.mutedConversations,
+      createdAt: user.createdAt,
     });
   } catch (error) {
     logger.error({ err: error }, "Erreur lors de la connexion");

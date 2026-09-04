@@ -147,6 +147,75 @@ exports.discoverUsers = async (req, res) => {
 // Envoie une demande de contact : n'ajoute rien tout de suite, place la
 // demande dans la liste d'attente de la personne visée, qui devra
 // l'accepter pour que le contact devienne mutuel des deux côtés
+// Liste détaillée (nom, avatar) des utilisateurs bloqués par le compte
+// connecté, pour pouvoir les retrouver et les débloquer sans devoir rouvrir
+// une conversation avec chacun d'eux
+exports.getBlockedUsers = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id)
+      .select("blockedUsers")
+      .populate("blockedUsers", "username avatar email");
+
+    res.status(200).json({ blockedUsers: user?.blockedUsers || [] });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de la récupération des utilisateurs bloqués");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Change le nom d'utilisateur du compte connecté, après vérification qu'il
+// n'est pas déjà pris par quelqu'un d'autre
+exports.updateUsername = async (req, res) => {
+  try {
+    const { username } = req.body;
+    const trimmed = username?.trim();
+
+    if (!trimmed || trimmed.length < 3) {
+      return res.status(400).json({
+        message: "Le nom d'utilisateur doit contenir au moins 3 caractères.",
+      });
+    }
+
+    const existing = await User.findOne({
+      username: trimmed,
+      _id: { $ne: req.user._id },
+    });
+    if (existing) {
+      return res.status(400).json({ message: "Ce nom d'utilisateur est déjà pris." });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { username: trimmed },
+      { new: true },
+    ).select("-password");
+
+    res.status(200).json(updatedUser);
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors du changement de nom d'utilisateur");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Recherche un profil par son nom d'utilisateur EXACT (pas une recherche
+// floue comme discoverUsers) : utilisé par le lien de partage "ajoute-moi"
+// (/add/[username]) pour retrouver la bonne personne à ajouter
+exports.lookupUserByUsername = async (req, res) => {
+  try {
+    const { username } = req.params;
+    const user = await User.findOne({ username }).select("username avatar");
+
+    if (!user) {
+      return res.status(404).json({ message: "Aucun compte avec ce nom d'utilisateur." });
+    }
+
+    res.status(200).json({ user });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de la recherche par nom d'utilisateur");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
 exports.addContact = async (req, res) => {
   try {
     const { id } = req.params;

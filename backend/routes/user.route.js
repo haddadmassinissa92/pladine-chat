@@ -29,6 +29,9 @@ const {
   getContactRequests,
   acceptContactRequest,
   declineContactRequest,
+  getBlockedUsers,
+  updateUsername,
+  lookupUserByUsername,
  } = require('../controllers/user.controller');
 
 // fonction qui recupere les utilisateurs connecter
@@ -92,6 +95,19 @@ const pushSubscribeValidation = [
   body('keys.auth').notEmpty().withMessage('Souscription push invalide.'),
 ];
 
+// Règle de validation pour le changement de nom d'utilisateur
+const updateUsernameValidation = [
+  body('username')
+    .trim()
+    .isLength({ min: 3, max: 30 })
+    .withMessage('Le nom d\'utilisateur doit contenir entre 3 et 30 caractères.'),
+];
+
+// Règle de validation pour la recherche par nom d'utilisateur exact
+const usernameParamValidation = [
+  param('username').trim().notEmpty().withMessage('Nom d\'utilisateur requis.'),
+];
+
 // creation des routes
 router.get('/', protect, getUsersForSidebar);
 router.get('/discover', protect, discoverUsers);
@@ -100,6 +116,9 @@ router.delete('/contacts/:id', protect, blockUserValidation, validate, removeCon
 router.get('/contact-requests', protect, getContactRequests);
 router.post('/contact-requests/:id/accept', protect, blockUserValidation, validate, acceptContactRequest);
 router.post('/contact-requests/:id/decline', protect, blockUserValidation, validate, declineContactRequest);
+router.get('/blocked-list', protect, getBlockedUsers);
+router.put('/username', protect, updateUsernameValidation, validate, updateUsername);
+router.get('/lookup/:username', protect, usernameParamValidation, validate, lookupUserByUsername);
 router.get('/online', protect, (req, res) => {
   res.status(200).json(getOnlineUserIds());
 });
