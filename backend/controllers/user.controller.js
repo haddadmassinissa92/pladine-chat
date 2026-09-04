@@ -197,6 +197,38 @@ exports.updateUsername = async (req, res) => {
   }
 };
 
+// Change l'adresse email du compte connecté, après vérification du format
+// et qu'elle n'est pas déjà utilisée par un autre compte
+exports.updateEmail = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const trimmed = email?.trim().toLowerCase();
+
+    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      return res.status(400).json({ message: "Adresse email invalide." });
+    }
+
+    const existing = await User.findOne({
+      email: trimmed,
+      _id: { $ne: req.user._id },
+    });
+    if (existing) {
+      return res.status(400).json({ message: "Cette adresse email est déjà utilisée." });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { email: trimmed },
+      { new: true },
+    ).select("-password");
+
+    res.status(200).json(updatedUser);
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors du changement d'adresse email");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
 // Recherche un profil par son nom d'utilisateur EXACT (pas une recherche
 // floue comme discoverUsers) : utilisé par le lien de partage "ajoute-moi"
 // (/add/[username]) pour retrouver la bonne personne à ajouter

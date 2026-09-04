@@ -33,6 +33,7 @@ const {
   cancelContactRequest,
   getBlockedUsers,
   updateUsername,
+  updateEmail,
   lookupUserByUsername,
  } = require('../controllers/user.controller');
 
@@ -122,6 +123,7 @@ router.get('/contact-requests/sent', protect, getSentContactRequests);
 router.delete('/contact-requests/:id', protect, blockUserValidation, validate, cancelContactRequest);
 router.get('/blocked-list', protect, getBlockedUsers);
 router.put('/username', protect, updateUsernameValidation, validate, updateUsername);
+router.put('/email', protect, body('email').trim().isEmail().withMessage('Adresse email invalide.'), validate, updateEmail);
 router.get('/lookup/:username', protect, usernameParamValidation, validate, lookupUserByUsername);
 router.get('/online', protect, (req, res) => {
   res.status(200).json(getOnlineUserIds());
