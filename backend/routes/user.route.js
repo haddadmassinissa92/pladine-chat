@@ -29,6 +29,8 @@ const {
   getContactRequests,
   acceptContactRequest,
   declineContactRequest,
+  getSentContactRequests,
+  cancelContactRequest,
   getBlockedUsers,
   updateUsername,
   lookupUserByUsername,
@@ -116,6 +118,8 @@ router.delete('/contacts/:id', protect, blockUserValidation, validate, removeCon
 router.get('/contact-requests', protect, getContactRequests);
 router.post('/contact-requests/:id/accept', protect, blockUserValidation, validate, acceptContactRequest);
 router.post('/contact-requests/:id/decline', protect, blockUserValidation, validate, declineContactRequest);
+router.get('/contact-requests/sent', protect, getSentContactRequests);
+router.delete('/contact-requests/:id', protect, blockUserValidation, validate, cancelContactRequest);
 router.get('/blocked-list', protect, getBlockedUsers);
 router.put('/username', protect, updateUsernameValidation, validate, updateUsername);
 router.get('/lookup/:username', protect, usernameParamValidation, validate, lookupUserByUsername);

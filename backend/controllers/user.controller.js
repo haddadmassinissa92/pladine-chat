@@ -318,6 +318,37 @@ exports.declineContactRequest = async (req, res) => {
   }
 };
 
+// Liste des demandes de contact ENVOYÉES par l'utilisateur connecté,
+// encore en attente d'une réponse (permet de les annuler)
+exports.getSentContactRequests = async (req, res) => {
+  try {
+    const targets = await User.find({
+      incomingContactRequests: req.user._id,
+    }).select("username avatar email");
+
+    res.status(200).json({ requests: targets });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de la récupération des demandes envoyées");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Annule une demande de contact qu'on a soi-même envoyée, avant qu'elle
+// ait été acceptée ou refusée
+exports.cancelContactRequest = async (req, res) => {
+  try {
+    const { id } = req.params; // id de la personne visée par la demande
+    await User.updateOne(
+      { _id: id },
+      { $pull: { incomingContactRequests: req.user._id } },
+    );
+    res.status(200).json({ message: "Demande annulée." });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de l'annulation d'une demande de contact");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
 // Retire un profil de ses propres contacts (n'affecte que sa propre liste)
 exports.removeContact = async (req, res) => {
   try {
