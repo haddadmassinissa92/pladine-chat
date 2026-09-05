@@ -192,7 +192,7 @@ const fetchAndAttachLinkPreview = async (message, url) => {
 // Envoie un nouveau message
 exports.sendMessage = async (req, res) => {
   try {
-    const { text, replyTo, groupId } = req.body;
+    const { text, replyTo, groupId, forwardedImage, forwardedAudio } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
 
@@ -274,6 +274,17 @@ exports.sendMessage = async (req, res) => {
       } else {
         const uploadResponse = await uploadWithRetry(base64File);
         imageUrl = uploadResponse.secure_url;
+      }
+    } else {
+      // Transfert d'un message existant : l'image/l'audio est déjà hébergé
+      // sur Cloudinary, pas besoin de re-télécharger le fichier, on réutilise
+      // directement son URL (limité aux URLs de notre propre compte
+      // Cloudinary, pour ne pas transformer ce champ en lien arbitraire)
+      if (forwardedImage?.startsWith("https://res.cloudinary.com/")) {
+        imageUrl = forwardedImage;
+      }
+      if (forwardedAudio?.startsWith("https://res.cloudinary.com/")) {
+        audioUrl = forwardedAudio;
       }
     }
 
