@@ -52,6 +52,29 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Même principe pour un groupe : le client fournit directement la liste
+  // des membres (déjà chargée côté frontend), pour éviter une requête en
+  // base de données à chaque frappe de touche
+  socket.on("groupTyping", ({ groupId, senderId, senderName, memberIds }) => {
+    (memberIds || []).forEach((memberId) => {
+      if (memberId === senderId) return;
+      const memberSocketId = getReceiverSocketId(memberId);
+      if (memberSocketId) {
+        io.to(memberSocketId).emit("groupUserTyping", { groupId, senderId, senderName });
+      }
+    });
+  });
+
+  socket.on("groupStopTyping", ({ groupId, senderId, memberIds }) => {
+    (memberIds || []).forEach((memberId) => {
+      if (memberId === senderId) return;
+      const memberSocketId = getReceiverSocketId(memberId);
+      if (memberSocketId) {
+        io.to(memberSocketId).emit("groupUserStopTyping", { groupId, senderId });
+      }
+    });
+  });
+
   // --- Signalisation WebRTC pour les appels audio/vidéo 1-à-1 ---
   // Le serveur ne fait que relayer les messages entre les deux participants ;
   // toute la logique d'appel (flux média, connexion peer-to-peer) se passe
