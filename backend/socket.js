@@ -109,6 +109,17 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Même principe pour un appel de groupe : diffusé à tous les autres
+  // participants du salon, pas juste un seul destinataire
+  socket.on("groupCameraToggled", ({ groupId, userId, isCameraOff }) => {
+    if (!groupCallRooms[groupId]) return;
+    Object.values(groupCallRooms[groupId]).forEach((p) => {
+      if (p.userId !== userId) {
+        io.to(p.socketId).emit("groupCameraToggled", { userId, isCameraOff });
+      }
+    });
+  });
+
   // L'un des deux participants raccroche, à n'importe quel moment de l'appel
   socket.on("endCall", ({ to }) => {
     const targetSocketId = getReceiverSocketId(to);
