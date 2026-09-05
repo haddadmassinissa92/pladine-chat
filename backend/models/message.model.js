@@ -94,10 +94,24 @@ const messageSchema = new mongoose.Schema(
       ref: "Message",
       default: null,
     },
+
+    // Date d'expiration (messages éphémères) : si définie, MongoDB
+    // supprime automatiquement ce document une fois cette date passée (voir
+    // l'index TTL juste en dessous). Reste à null pour un message normal.
+    expiresAt: {
+      type: Date,
+      default: null,
+    },
   },
   // Options du schéma pour la gestion automatique des dates de création et de modification.
   { timestamps: true }
 );
 
 // Exportation du modèle Mongoose pour l'utiliser dans l'application.
+// Index TTL : MongoDB vérifie périodiquement (environ toutes les 60
+// secondes) les documents dont "expiresAt" est dépassé, et les supprime
+// automatiquement. expireAfterSeconds: 0 = suppression exactement à la
+// date indiquée par expiresAt (pas de délai supplémentaire).
+messageSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+
 module.exports = mongoose.model("Message", messageSchema);

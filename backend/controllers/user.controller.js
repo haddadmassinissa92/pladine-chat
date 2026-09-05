@@ -229,6 +229,33 @@ exports.updateEmail = async (req, res) => {
   }
 };
 
+// Définit (ou désactive avec 0) la durée d'autodestruction des messages
+// qu'on envoie soi-même dans une conversation précise
+exports.setDisappearingTimer = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { seconds } = req.body;
+
+    const value = Number(seconds) || 0;
+
+    const user = await User.findById(req.user._id);
+    if (value > 0) {
+      user.disappearingTimers.set(conversationId, value);
+    } else {
+      user.disappearingTimers.delete(conversationId);
+    }
+    await user.save();
+
+    res.status(200).json({
+      message: value > 0 ? "Messages éphémères activés." : "Messages éphémères désactivés.",
+      disappearingTimers: Object.fromEntries(user.disappearingTimers),
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors du réglage des messages éphémères");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
 // Recherche un profil par son nom d'utilisateur EXACT (pas une recherche
 // floue comme discoverUsers) : utilisé par le lien de partage "ajoute-moi"
 // (/add/[username]) pour retrouver la bonne personne à ajouter

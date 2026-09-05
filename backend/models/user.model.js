@@ -73,6 +73,18 @@ const userSchema = new mongoose.Schema(
       default: 0,
     },
 
+    // Durée (en secondes) après laquelle les messages ENVOYÉS par cet
+    // utilisateur dans une conversation donnée s'autodétruisent. Clé =
+    // identifiant du contact ou du groupe, valeur = durée en secondes
+    // (absente ou 0 = messages ephemeres desactives pour cette conversation).
+    // Propre à chaque expéditeur : chacun choisit la durée appliquée à SES
+    // propres messages, comme le mode "muet" plus haut.
+    disappearingTimers: {
+      type: Map,
+      of: Number,
+      default: {},
+    },
+
     // Demandes de contact reçues, en attente d'acceptation ou de refus
     // (l'ajout d'un contact n'est donc plus instantané : il faut que
     // la personne accepte pour devenir contact mutuel des deux côtés)

@@ -327,6 +327,13 @@ exports.sendMessage = async (req, res) => {
       }
     }
 
+    // Messages éphémères : si l'expéditeur a activé un minuteur pour cette
+    // conversation précise (contact ou groupe), calcule la date
+    // d'expiration à appliquer à CE message
+    const conversationKeyForTimer = groupId || receiverId;
+    const timerSeconds = req.user.disappearingTimers?.get(conversationKeyForTimer);
+    const expiresAt = timerSeconds > 0 ? new Date(Date.now() + timerSeconds * 1000) : null;
+
     const newMessage = await Message.create({
       sender: senderId,
       receiver: groupId ? null : receiverId,
@@ -336,6 +343,7 @@ exports.sendMessage = async (req, res) => {
       audio: audioUrl,
       replyTo: replyTo || null,
       pendingApproval: isPendingApproval,
+      expiresAt,
     });
 
     await newMessage.populate("replyTo", "text");
