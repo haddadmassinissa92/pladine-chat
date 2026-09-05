@@ -26,7 +26,8 @@ const {
     deleteConversation,
     editMessage,
     reactToMessage,
-    searchMessages
+    searchMessages,
+    searchAllConversations
 } = require('../controllers/message.controller');
 
 // Limiteur anti-spam sur l'envoi de messages : 30 messages maximum par minute
@@ -114,6 +115,7 @@ const reactValidation = [
 // le cycle de vie complet, l'interactivité et l'état des messages échangés
 router.get('/:id', protect, getMessages);
 router.get('/search/:id', protect, searchMessages);//
+router.get('/search-all/global', protect, searchAllConversations);
 router.post(
   '/send/:id',
   protect,

@@ -127,6 +127,45 @@ exports.searchMessages = async (req, res) => {
   }
 };
 
+// Recherche un mot dans TOUTES les conversations de l'utilisateur connecté
+// d'un coup (contacts privés et groupes dont il est membre), contrairement
+// à searchMessages ci-dessus qui se limite à une seule conversation
+exports.searchAllConversations = async (req, res) => {
+  try {
+    const { q } = req.query;
+    const myId = req.user._id;
+
+    if (!q || !q.trim()) {
+      return res.status(200).json({ results: [] });
+    }
+
+    const myGroups = await Group.find({ members: myId }).select("_id");
+    const groupIds = myGroups.map((g) => g._id);
+
+    const filter = {
+      $or: [
+        { sender: myId, receiver: { $ne: null } },
+        { receiver: myId },
+        { group: { $in: groupIds }, pendingApproval: { $ne: true } },
+      ],
+      text: { $regex: escapeRegex(q.trim()), $options: "i" },
+    };
+
+    const results = await Message.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(SEARCH_RESULTS_LIMIT)
+      .select("_id text sender receiver group createdAt")
+      .populate("sender", "username avatar")
+      .populate("receiver", "username avatar")
+      .populate("group", "name");
+
+    res.status(200).json({ results });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de la recherche globale dans les messages");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
 // Fonction pour uploader une image sur Cloudinary avec des tentatives de retry
 const uploadWithRetry = async (base64Image, retries = 2) => {
   for (let i = 0; i <= retries; i++) {
