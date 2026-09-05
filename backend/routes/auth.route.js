@@ -18,6 +18,7 @@ const {
   signup,
   login,
   logout,
+  logoutAllDevices,
   verifyEmail,
   resendVerificationEmail,
   forgotPassword,
@@ -140,6 +141,7 @@ const newPasswordValidation = [
 router.post('/signup', signupLimiter, signupValidation, validate, signup);
 router.post('/login', loginLimiter, loginValidation, validate, login);
 router.post('/logout', logout);
+router.post('/logout-all-devices', protect, logoutAllDevices);
 
 // Confirmation d'adresse email, et renvoi de l'email si besoin
 router.get('/verify-email/:token', verifyEmail);

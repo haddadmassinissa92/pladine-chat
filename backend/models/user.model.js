@@ -65,6 +65,14 @@ const userSchema = new mongoose.Schema(
       },
     ],
 
+    // Compteur incrémenté à chaque "Déconnexion de tous les appareils" :
+    // tout jeton de connexion émis avant cet incrément est alors rejeté,
+    // forçant une reconnexion partout (voir auth.middleware.js)
+    tokenVersion: {
+      type: Number,
+      default: 0,
+    },
+
     // Demandes de contact reçues, en attente d'acceptation ou de refus
     // (l'ajout d'un contact n'est donc plus instantané : il faut que
     // la personne accepte pour devenir contact mutuel des deux côtés)

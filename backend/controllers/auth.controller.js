@@ -9,9 +9,12 @@ const logger = require("../logger");
 const { sendVerificationEmail, sendPasswordResetEmail } = require("../email.service");
 
 // Fonction utilitaire interne chargée de créer un jeton de session chiffré (valable 7 jours)
-// et de l'injecter directement dans les cookies de réponse du navigateur pour sécuriser le stockage
-const generateTokenAndSetCookie = (userId, res) => {
-  const token = jwt.sign({ userId }, process.env.JWT_SECRET, {
+// et de l'injecter directement dans les cookies de réponse du navigateur pour sécuriser le stockage.
+// Le "tokenVersion" est inclus dans le jeton : "Déconnexion de tous les appareils" incrémente
+// ce compteur en base, ce qui invalide immédiatement tous les jetons déjà émis (voir
+// auth.middleware.js, qui compare la version du jeton à celle stockée en base à chaque requête).
+const generateTokenAndSetCookie = (userId, tokenVersion, res) => {
+  const token = jwt.sign({ userId, tokenVersion }, process.env.JWT_SECRET, {
     expiresIn: "7d",
   });
 
@@ -60,7 +63,7 @@ exports.signup = async (req, res) => {
     });
 
     // Génération instantanée de la session active du nouvel inscrit
-    generateTokenAndSetCookie(newUser._id, res);
+    generateTokenAndSetCookie(newUser._id, newUser.tokenVersion, res);
 
     // Renvoi des informations publiques du compte créé sans le mot de passe
     res.status(201).json({
@@ -100,7 +103,7 @@ exports.verifyEmail = async (req, res) => {
     user.verificationTokenExpires = null;
     await user.save();
 
-    generateTokenAndSetCookie(user._id, res);
+    generateTokenAndSetCookie(user._id, user.tokenVersion, res);
 
     res.status(200).json({
       _id: user._id,
@@ -176,7 +179,7 @@ exports.login = async (req, res) => {
     // }
 
     // Renouvellement et attribution du cookie de session d'authentification
-    generateTokenAndSetCookie(user._id, res);
+    generateTokenAndSetCookie(user._id, user.tokenVersion, res);
 
     // Renvoi les données de l'utilisateur confirmant la réussite de l'authentification
     res.status(200).json({
@@ -258,6 +261,28 @@ exports.logout = (req, res) => {
     sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
   });
   res.status(200).json({ message: "Déconnexion réussie." });
+};
+
+// Déconnecte TOUS les appareils connectés à ce compte (y compris celui-ci) :
+// incrémente le compteur de version, ce qui invalide immédiatement tous les
+// jetons déjà émis, où qu'ils soient stockés
+exports.logoutAllDevices = async (req, res) => {
+  try {
+    await User.findByIdAndUpdate(req.user._id, { $inc: { tokenVersion: 1 } });
+
+    res.clearCookie("token", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    });
+
+    res.status(200).json({
+      message: "Déconnecté de tous les appareils. Reconnecte-toi pour continuer.",
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de la déconnexion de tous les appareils");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
 };
 
 // Renvoie directement le profil complet de l'utilisateur connecté,

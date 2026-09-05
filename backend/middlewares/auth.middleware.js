@@ -26,6 +26,13 @@ exports.protect = async (req, res, next) => {
       return res.status(401).json({ message: 'Utilisateur introuvable.' });
     }
 
+    // Bloc de sécurité : le jeton a été émis avant un "Déconnexion de tous les
+    // appareils" (voir logoutAllDevices) — il est donc périmé même s'il n'a pas
+    // expiré, et la reconnexion est exigée
+    if (decoded.tokenVersion !== user.tokenVersion) {
+      return res.status(401).json({ message: 'Session expirée, reconnecte-toi.' });
+    }
+
     // Injection des données de l'utilisateur authentifié dans l'objet de requête (req)
     req.user = user;
 
