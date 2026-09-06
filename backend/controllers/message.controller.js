@@ -93,6 +93,49 @@ exports.getMessages = async (req, res) => {
   }
 };
 
+// Permet de "sauter" directement à une date précise dans l'historique,
+// sans avoir à faire défiler des centaines de messages : renvoie une
+// fenêtre de messages centrée sur cette date (une moitié juste avant,
+// une moitié juste après), avec de quoi savoir s'il reste encore des
+// messages plus anciens ou plus récents autour de cette fenêtre
+exports.getMessagesAroundDate = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isGroup, date } = req.query;
+    const myId = req.user._id;
+
+    if (!date) {
+      return res.status(400).json({ message: "Date manquante." });
+    }
+
+    const baseFilter = await buildBaseFilter(id, isGroup, myId);
+    const targetDate = new Date(date);
+    const half = Math.floor(MESSAGES_PER_PAGE / 2);
+
+    const [beforeDesc, afterAsc] = await Promise.all([
+      Message.find({ ...baseFilter, createdAt: { $lt: targetDate } })
+        .sort({ createdAt: -1 })
+        .limit(half)
+        .populate("replyTo", "text"),
+      Message.find({ ...baseFilter, createdAt: { $gte: targetDate } })
+        .sort({ createdAt: 1 })
+        .limit(half)
+        .populate("replyTo", "text"),
+    ]);
+
+    const messages = [...beforeDesc.reverse(), ...afterAsc];
+
+    res.status(200).json({
+      messages,
+      hasMoreBefore: beforeDesc.length === half,
+      hasMoreAfter: afterAsc.length === half,
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors du saut à une date précise");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
 // Recherche un mot ou une expression dans tout l'historique d'une conversation
 // (pas seulement les messages déjà chargés côté client). Respecte les mêmes
 // règles de visibilité que getMessages (groupe/privé, messages en attente).

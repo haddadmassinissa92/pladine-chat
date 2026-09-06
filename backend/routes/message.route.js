@@ -19,7 +19,8 @@ const upload = require('../middlewares/multer.middleware');
 // Importation de l'ensemble des actions de traitement, 
 // d'envoi, de lecture et de modification de l'historique de chat
 const { 
-    getMessages, 
+    getMessages,
+    getMessagesAroundDate,
     sendMessage, 
     markMessagesAsRead ,
     deleteMessage,
@@ -114,6 +115,7 @@ const reactValidation = [
 // Enregistrement des points d'accès sécurisés encadrant 
 // le cycle de vie complet, l'interactivité et l'état des messages échangés
 router.get('/:id', protect, getMessages);
+router.get('/around-date/:id', protect, getMessagesAroundDate);
 router.get('/search/:id', protect, searchMessages);//
 router.get('/search-all/global', protect, searchAllConversations);
 router.post(
