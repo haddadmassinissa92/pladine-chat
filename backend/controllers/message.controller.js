@@ -129,6 +129,12 @@ exports.getMessagesAroundDate = async (req, res) => {
       messages,
       hasMoreBefore: beforeDesc.length === half,
       hasMoreAfter: afterAsc.length === half,
+      // Index, dans le tableau "messages", du premier message à partir de
+      // la date demandée — c'est celui-là qu'il faut mettre en évidence
+      // côté frontend, pas le tout premier message de la fenêtre (qui est
+      // le plus ancien de la moitié "avant", donc potentiellement la veille
+      // ou plus tôt encore)
+      targetIndex: beforeDesc.length,
     });
   } catch (error) {
     logger.error({ err: error }, "Erreur lors du saut à une date précise");
