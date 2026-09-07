@@ -29,6 +29,16 @@ const groupSchema = new mongoose.Schema(
       },
     ],
 
+    // Membres promus co-administrateurs par le créateur : peuvent gérer
+    // les membres, renommer le groupe et le rendre découvrable, mais ne
+    // peuvent pas supprimer le groupe ni retirer/bloquer le créateur
+    admins: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
     // Indicateur rendant le groupe visible et accessible via une recherche publique
     isDiscoverable: {
       type: Boolean,

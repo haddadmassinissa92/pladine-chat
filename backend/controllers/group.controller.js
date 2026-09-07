@@ -107,7 +107,67 @@ const requireGroupCreator = async (req, res, id) => {
   return group;
 };
 
-// Renomme un groupe existant (réservé au créateur)
+// Même chose, mais autorise aussi les co-administrateurs (pas seulement le
+// créateur) : utilisé pour les actions de gestion courante du groupe
+// (renommer, ajouter/retirer/bloquer des membres, rendre découvrable).
+// Nommer ou démettre un co-admin, et supprimer le groupe, restent réservés
+// au seul créateur (voir requireGroupCreator ci-dessus).
+const requireGroupCreatorOrAdmin = async (req, res, id) => {
+  const group = await Group.findById(id);
+  if (!group) {
+    res.status(404).json({ message: "Groupe introuvable." });
+    return null;
+  }
+  const myId = req.user._id.toString();
+  const isCreator = group.createdBy.toString() === myId;
+  const isAdmin = group.admins?.some((a) => a.toString() === myId);
+  if (!isCreator && !isAdmin) {
+    res.status(403).json({ message: "Action réservée aux administrateurs du groupe." });
+    return null;
+  }
+  return group;
+};
+
+// Promeut ou rétrograde un membre comme co-administrateur du groupe
+// (réservé au créateur, qui reste seul décisionnaire sur qui peut gérer le groupe)
+exports.toggleAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { memberId } = req.body;
+
+    if (!memberId) {
+      return res.status(400).json({ message: "Membre concerné manquant." });
+    }
+
+    const group = await requireGroupCreator(req, res, id);
+    if (!group) return;
+
+    if (memberId === group.createdBy.toString()) {
+      return res
+        .status(400)
+        .json({ message: "Le créateur est déjà administrateur du groupe." });
+    }
+
+    const isAlreadyAdmin = group.admins.some((a) => a.toString() === memberId);
+    if (isAlreadyAdmin) {
+      group.admins = group.admins.filter((a) => a.toString() !== memberId);
+    } else {
+      group.admins.push(memberId);
+    }
+
+    await group.save();
+    await group.populate("members", "username");
+
+    broadcastGroupUpdate(group);
+
+    res.status(200).json(group);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Renomme un groupe existant (réservé au créateur et aux co-administrateurs)
 exports.renameGroup = async (req, res) => {
   try {
     const { id } = req.params;
@@ -117,7 +177,7 @@ exports.renameGroup = async (req, res) => {
       return res.status(400).json({ message: "Le nom du groupe est requis." });
     }
 
-    const group = await requireGroupCreator(req, res, id);
+    const group = await requireGroupCreatorOrAdmin(req, res, id);
     if (!group) return;
 
     group.name = name.trim();
@@ -133,7 +193,7 @@ exports.renameGroup = async (req, res) => {
   }
 };
 
-// Ajoute un ou plusieurs membres à un groupe existant (réservé au créateur)
+// Ajoute un ou plusieurs membres à un groupe existant (réservé au créateur et aux co-administrateurs)
 exports.addMembers = async (req, res) => {
   try {
     const { id } = req.params;
@@ -143,7 +203,7 @@ exports.addMembers = async (req, res) => {
       return res.status(400).json({ message: "Aucun membre à ajouter." });
     }
 
-    const group = await requireGroupCreator(req, res, id);
+    const group = await requireGroupCreatorOrAdmin(req, res, id);
     if (!group) return;
 
     const currentMemberIds = group.members.map((m) => m.toString());
@@ -162,7 +222,8 @@ exports.addMembers = async (req, res) => {
   }
 };
 
-// Retire définitivement un membre du groupe (réservé au créateur)
+// Retire définitivement un membre du groupe (réservé au créateur et aux
+// co-administrateurs ; un co-admin ne peut pas retirer le créateur ni un autre admin)
 exports.removeMember = async (req, res) => {
   try {
     const { id } = req.params;
@@ -172,7 +233,7 @@ exports.removeMember = async (req, res) => {
       return res.status(400).json({ message: "Membre à retirer manquant." });
     }
 
-    const group = await requireGroupCreator(req, res, id);
+    const group = await requireGroupCreatorOrAdmin(req, res, id);
     if (!group) return;
 
     if (memberId === group.createdBy.toString()) {
@@ -181,11 +242,20 @@ exports.removeMember = async (req, res) => {
         .json({ message: "Le créateur ne peut pas se retirer lui-même." });
     }
 
+    const isTargetAdmin = group.admins.some((a) => a.toString() === memberId);
+    const isRequesterCreator = group.createdBy.toString() === req.user._id.toString();
+    if (isTargetAdmin && !isRequesterCreator) {
+      return res
+        .status(403)
+        .json({ message: "Seul le créateur peut retirer un co-administrateur." });
+    }
+
     group.members = group.members.filter((m) => m.toString() !== memberId);
-    // On nettoie aussi la liste des membres bloqués, s'il en faisait partie
+    // On nettoie aussi la liste des membres bloqués et des co-admins, s'il en faisait partie
     group.blockedMembers = group.blockedMembers.filter(
       (m) => m.toString() !== memberId,
     );
+    group.admins = group.admins.filter((a) => a.toString() !== memberId);
 
     await group.save();
     await group.populate("members", "username");
@@ -207,7 +277,8 @@ exports.removeMember = async (req, res) => {
 
 // Bloque ou débloque un membre à l'intérieur du groupe (bascule automatique) :
 // un membre bloqué reste visible dans le groupe mais ne peut plus y envoyer
-// de messages. Réservé au créateur.
+// de messages. Réservé au créateur et aux co-administrateurs (un co-admin ne
+// peut pas bloquer le créateur ni un autre admin).
 exports.toggleBlockMember = async (req, res) => {
   try {
     const { id } = req.params;
@@ -217,13 +288,21 @@ exports.toggleBlockMember = async (req, res) => {
       return res.status(400).json({ message: "Membre concerné manquant." });
     }
 
-    const group = await requireGroupCreator(req, res, id);
+    const group = await requireGroupCreatorOrAdmin(req, res, id);
     if (!group) return;
 
     if (memberId === group.createdBy.toString()) {
       return res
         .status(400)
         .json({ message: "Le créateur ne peut pas se bloquer lui-même." });
+    }
+
+    const isTargetAdmin = group.admins.some((a) => a.toString() === memberId);
+    const isRequesterCreator = group.createdBy.toString() === req.user._id.toString();
+    if (isTargetAdmin && !isRequesterCreator) {
+      return res
+        .status(403)
+        .json({ message: "Seul le créateur peut bloquer un co-administrateur." });
     }
 
     const isBlocked = group.blockedMembers.some(
@@ -250,13 +329,14 @@ exports.toggleBlockMember = async (req, res) => {
   }
 };
 
-// Rend un groupe découvrable ou privé (bascule automatique, réservé au créateur).
-// Un groupe découvrable peut être trouvé par d'autres utilisateurs, qui peuvent
-// alors envoyer une demande d'adhésion pour le rejoindre.
+// Rend un groupe découvrable ou privé (bascule automatique, réservé au
+// créateur et aux co-administrateurs). Un groupe découvrable peut être
+// trouvé par d'autres utilisateurs, qui peuvent alors envoyer une demande
+// d'adhésion pour le rejoindre.
 exports.toggleDiscoverable = async (req, res) => {
   try {
     const { id } = req.params;
-    const group = await requireGroupCreator(req, res, id);
+    const group = await requireGroupCreatorOrAdmin(req, res, id);
     if (!group) return;
 
     group.isDiscoverable = !group.isDiscoverable;

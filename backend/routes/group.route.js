@@ -22,6 +22,7 @@ const {
   addMembers,
   removeMember,
   toggleBlockMember,
+  toggleAdmin,
   toggleDiscoverable,
   getDiscoverableGroups,
   requestToJoin,
@@ -129,6 +130,7 @@ router.put('/rename/:id', protect, renameGroupValidation, validate, renameGroup)
 router.put('/add-members/:id', protect, addMembersValidation, validate, addMembers);
 router.put('/remove-member/:id', protect, groupAndMemberIdValidation, validate, removeMember);
 router.put('/block-member/:id', protect, groupAndMemberIdValidation, validate, toggleBlockMember);
+router.put('/toggle-admin/:id', protect, groupAndMemberIdValidation, validate, toggleAdmin);
 
 // Enregistrement des points d'accès communautaires 
 // dédiés à la visibilité publique, l'exploration et la modération des candidatures
