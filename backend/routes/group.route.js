@@ -28,6 +28,8 @@ const {
   requestToJoin,
   approveJoinRequest,
   rejectJoinRequest,
+  getPendingGroupInvites,
+  respondToGroupInvite,
 } = require('../controllers/group.controller');
 
 // Limiteur anti-spam sur la création de groupes : 10 groupes maximum par
@@ -146,6 +148,14 @@ router.post(
 router.put('/toggle-discoverable/:id', protect, param('id').isMongoId(), validate, toggleDiscoverable);
 router.put('/approve-join/:id', protect, groupAndUserIdValidation, validate, approveJoinRequest);
 router.put('/reject-join/:id', protect, groupAndUserIdValidation, validate, rejectJoinRequest);
+router.get('/invites/pending', protect, getPendingGroupInvites);
+router.put(
+  '/invites/:id/respond',
+  protect,
+  param('id').isMongoId().withMessage('Groupe invalide.'),
+  validate,
+  respondToGroupInvite,
+);
 
 // Publication et exportation du routeur configuré pour 
 // l'injecter au sein de l'application Express principale

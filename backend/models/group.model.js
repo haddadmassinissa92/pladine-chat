@@ -39,6 +39,17 @@ const groupSchema = new mongoose.Schema(
       },
     ],
 
+    // Membres invités (via "Ajouter des membres" ou à la création) mais
+    // qui n'ont pas encore accepté : ils ne font pas partie de "members"
+    // tant qu'ils n'ont pas répondu, donc ne voient pas encore le groupe
+    // ni ses messages
+    pendingInvites: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
     // Indicateur rendant le groupe visible et accessible via une recherche publique
     isDiscoverable: {
       type: Boolean,

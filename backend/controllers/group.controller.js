@@ -1,18 +1,34 @@
 const Group = require("../models/group.model");
 const { getReceiverSocketId, io } = require("../socket");
 
-// Créer un nouveau groupe
+// Créer un nouveau groupe : le créateur en devient membre immédiatement,
+// mais les autres personnes choisies reçoivent une INVITATION (elles ne
+// rejoignent le groupe qu'après l'avoir acceptée)
 exports.createGroup = async (req, res) => {
   try {
     const { name, members } = req.body;
     const createdBy = req.user._id;
 
-    const allMembers = [...new Set([...members, createdBy.toString()])];
+    const invitedMembers = [...new Set(members)].filter(
+      (m) => m !== createdBy.toString(),
+    );
 
     const group = await Group.create({
       name,
-      members: allMembers,
+      members: [createdBy],
+      pendingInvites: invitedMembers,
       createdBy,
+    });
+
+    // Prévient chaque personne invitée en temps réel
+    invitedMembers.forEach((memberId) => {
+      const socketId = getReceiverSocketId(memberId);
+      if (socketId) {
+        io.to(socketId).emit("groupInviteReceived", {
+          groupId: group._id,
+          groupName: group.name,
+        });
+      }
     });
 
     res.status(201).json(group);
@@ -193,29 +209,102 @@ exports.renameGroup = async (req, res) => {
   }
 };
 
-// Ajoute un ou plusieurs membres à un groupe existant (réservé au créateur et aux co-administrateurs)
+// Invite un ou plusieurs membres à rejoindre un groupe existant (réservé au
+// créateur et aux co-administrateurs) : chaque personne reçoit une
+// invitation et doit l'accepter avant de rejoindre réellement le groupe
 exports.addMembers = async (req, res) => {
   try {
     const { id } = req.params;
-    const { members } = req.body; // tableau d'ids d'utilisateurs à ajouter
+    const { members } = req.body; // tableau d'ids d'utilisateurs à inviter
 
     if (!Array.isArray(members) || members.length === 0) {
-      return res.status(400).json({ message: "Aucun membre à ajouter." });
+      return res.status(400).json({ message: "Aucun membre à inviter." });
     }
 
     const group = await requireGroupCreatorOrAdmin(req, res, id);
     if (!group) return;
 
     const currentMemberIds = group.members.map((m) => m.toString());
-    const newMemberIds = members.filter((m) => !currentMemberIds.includes(m));
+    const currentInviteIds = group.pendingInvites.map((m) => m.toString());
+    const newInviteIds = members.filter(
+      (m) => !currentMemberIds.includes(m) && !currentInviteIds.includes(m),
+    );
 
-    group.members = [...group.members, ...newMemberIds];
+    group.pendingInvites = [...group.pendingInvites, ...newInviteIds];
+    await group.save();
+    await group.populate("members", "username");
+
+    // Prévient chaque personne invitée en temps réel
+    newInviteIds.forEach((memberId) => {
+      const socketId = getReceiverSocketId(memberId);
+      if (socketId) {
+        io.to(socketId).emit("groupInviteReceived", {
+          groupId: group._id,
+          groupName: group.name,
+        });
+      }
+    });
+
+    broadcastGroupUpdate(group);
+
+    res.status(200).json(group);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Liste les invitations de groupe en attente pour l'utilisateur connecté
+exports.getPendingGroupInvites = async (req, res) => {
+  try {
+    const groups = await Group.find({ pendingInvites: req.user._id }).select(
+      "name members",
+    );
+    const invites = groups.map((g) => ({
+      groupId: g._id,
+      groupName: g.name,
+      memberCount: g.members.length,
+    }));
+    res.status(200).json({ invites });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Accepte ou refuse une invitation à rejoindre un groupe
+exports.respondToGroupInvite = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { accept } = req.body;
+    const myId = req.user._id;
+
+    const group = await Group.findById(id);
+    if (!group) {
+      return res.status(404).json({ message: "Groupe introuvable." });
+    }
+
+    const isInvited = group.pendingInvites.some(
+      (m) => m.toString() === myId.toString(),
+    );
+    if (!isInvited) {
+      return res.status(403).json({ message: "Aucune invitation en attente pour ce groupe." });
+    }
+
+    group.pendingInvites = group.pendingInvites.filter(
+      (m) => m.toString() !== myId.toString(),
+    );
+
+    if (accept) {
+      group.members.push(myId);
+    }
+
     await group.save();
     await group.populate("members", "username");
 
     broadcastGroupUpdate(group);
 
-    res.status(200).json(group);
+    res.status(200).json({ group: accept ? group : null });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Erreur serveur." });
