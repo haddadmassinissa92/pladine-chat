@@ -23,6 +23,7 @@ const {
   subscribeToPush,
   unsubscribeFromPush,
   toggleMuteConversation,
+  toggleHideOnlineStatus,
   discoverUsers,
   addContact,
   removeContact,
@@ -157,6 +158,7 @@ router.post(
 );
 router.post('/push-unsubscribe', protect, unsubscribeFromPush);
 router.put('/mute/:id', protect, toggleMuteConversation);
+router.put('/hide-online-status/:id', protect, blockUserValidation, validate, toggleHideOnlineStatus);
 
 // exporter le router
 module.exports = router;

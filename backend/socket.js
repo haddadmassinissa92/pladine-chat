@@ -2,6 +2,7 @@ const { Server } = require("socket.io");
 const http = require("http");
 const express = require("express");
 const logger = require("./logger");
+const User = require("./models/user.model");
 
 const app = express();
 const server = http.createServer(app);
@@ -26,6 +27,33 @@ function getReceiverSocketId(userId) {
   return userSocketMap[userId];
 }
 
+// Diffuse la liste des utilisateurs en ligne, mais de façon personnalisée
+// pour chaque destinataire : quelqu'un qui a caché son statut à telle
+// personne apparaît "hors ligne" uniquement pour elle, pas pour les autres
+async function broadcastOnlineUsers() {
+  const onlineUserIds = Object.keys(userSocketMap);
+  if (onlineUserIds.length === 0) return;
+
+  const users = await User.find({ _id: { $in: onlineUserIds } }).select(
+    "hiddenFromOnlineStatus",
+  );
+  const hiddenFromMap = new Map(
+    users.map((u) => [
+      u._id.toString(),
+      (u.hiddenFromOnlineStatus || []).map((id) => id.toString()),
+    ]),
+  );
+
+  for (const [viewerId, socketId] of Object.entries(userSocketMap)) {
+    const visibleOnlineIds = onlineUserIds.filter((id) => {
+      if (id === viewerId) return true; // on se voit toujours soi-même en ligne
+      const hiddenFrom = hiddenFromMap.get(id) || [];
+      return !hiddenFrom.includes(viewerId);
+    });
+    io.to(socketId).emit("getOnlineUsers", visibleOnlineIds);
+  }
+}
+
 io.on("connection", (socket) => {
   logger.info({ socketId: socket.id }, "Connexion socket établie");
 
@@ -34,8 +62,9 @@ io.on("connection", (socket) => {
     userSocketMap[userId] = socket.id;
   }
 
-  // Informe tout le monde de la liste des utilisateurs en ligne
-  io.emit("getOnlineUsers", Object.keys(userSocketMap));
+  // Informe chacun de la liste des utilisateurs en ligne, personnalisée
+  // selon qui a caché son statut à qui
+  broadcastOnlineUsers();
 
   // Indicateur "en train d'écrire..."
   socket.on("typing", ({ receiverId, senderId }) => {
@@ -255,7 +284,7 @@ io.on("connection", (socket) => {
     logger.info({ socketId: socket.id }, "Connexion socket fermée");
     if (userSocketMap[userId] === socket.id) {
       delete userSocketMap[userId];
-      io.emit("getOnlineUsers", Object.keys(userSocketMap));
+      broadcastOnlineUsers();
     }
 
     // Retire cet utilisateur de toute salle d'appel de groupe où il se
@@ -280,4 +309,4 @@ function getOnlineUserIds() {
   return Object.keys(userSocketMap);
 }
 
-module.exports = { app, server, io, getReceiverSocketId, getOnlineUserIds };
+module.exports = { app, server, io, getReceiverSocketId, getOnlineUserIds, broadcastOnlineUsers };

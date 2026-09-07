@@ -11,7 +11,7 @@ const User = require("../models/user.model");
 const Message = require("../models/message.model");
 const PushSubscription = require("../models/pushSubscription.model");
 const logger = require("../logger");
-const { getReceiverSocketId, io } = require("../socket");
+const { getReceiverSocketId, io, broadcastOnlineUsers } = require("../socket");
 
 // Nombre de contacts chargés par page (premier chargement, puis à chaque
 // défilement vers le bas de la liste)
@@ -625,6 +625,37 @@ exports.toggleMuteConversation = async (req, res) => {
     res.status(200).json({ muted: !alreadyMuted });
   } catch (error) {
     logger.error({ err: error }, "Erreur lors du changement de statut muet");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Cache (ou réaffiche) son propre statut "en ligne" à un contact précis :
+// il continue de nous voir dans sa liste et peut toujours nous écrire, mais
+// ne verra plus jamais notre pastille verte, quelle que soit notre présence
+exports.toggleHideOnlineStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(req.user._id);
+
+    const alreadyHidden = user.hiddenFromOnlineStatus.some(
+      (contactId) => contactId.toString() === id,
+    );
+    if (alreadyHidden) {
+      user.hiddenFromOnlineStatus = user.hiddenFromOnlineStatus.filter(
+        (contactId) => contactId.toString() !== id,
+      );
+    } else {
+      user.hiddenFromOnlineStatus.push(id);
+    }
+    await user.save();
+
+    // Rediffuse immédiatement la liste des utilisateurs en ligne, pour que
+    // ce changement s'applique sans attendre une reconnexion
+    broadcastOnlineUsers();
+
+    res.status(200).json({ hidden: !alreadyHidden });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors du changement de confidentialité du statut en ligne");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };

@@ -85,6 +85,17 @@ const userSchema = new mongoose.Schema(
       default: {},
     },
 
+    // Liste des personnes à qui on cache volontairement son statut
+    // "en ligne" (elles nous voient toujours hors ligne, même quand on
+    // est connecté) ; ne les empêche pas de nous écrire, juste de voir
+    // notre présence en temps réel
+    hiddenFromOnlineStatus: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
     // Demandes de contact reçues, en attente d'acceptation ou de refus
     // (l'ajout d'un contact n'est donc plus instantané : il faut que
     // la personne accepte pour devenir contact mutuel des deux côtés)
