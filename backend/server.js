@@ -10,7 +10,9 @@ require('./app');
 
 // Importe le serveur HTTP (qui enveloppe la même app Express, avec socket.io
 // déjà attaché dessus depuis socket.js)
-const { server } = require('./socket');
+const { server, io, getReceiverSocketId } = require('./socket');
+const { sendPushToUser } = require('./push.service');
+const { startScheduledMessageDispatcher } = require('./scheduledMessages.service');
 
 // port du serveur
 const PORT = process.env.PORT || 5001;
@@ -18,4 +20,5 @@ const PORT = process.env.PORT || 5001;
 // Démarrer le serveur
 server.listen(PORT, () => {
   logger.info(`Serveur en écoute sur http://localhost:${PORT}`);
+  startScheduledMessageDispatcher({ getReceiverSocketId, io, sendPushToUser });
 });

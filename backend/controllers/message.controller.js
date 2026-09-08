@@ -8,6 +8,7 @@ const ogs = require("open-graph-scraper");
 const Message = require("../models/message.model");
 const User = require("../models/user.model");
 const Group = require("../models/group.model");
+const ScheduledMessage = require("../models/scheduledMessage.model");
 const logger = require("../logger");
 
 // Récupère l'historique des messages entre l'utilisateur connecté et un autre utilisateur
@@ -680,6 +681,80 @@ exports.reactToMessage = async (req, res) => {
     res.status(200).json(message);
   } catch (error) {
     logger.error({ err: error }, "Erreur lors de l'ajout d'une réaction");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Programme un message texte pour un envoi différé, à une date/heure future.
+// Le message reste invisible (pas dans "Message", donc pas dans l'historique
+// de la conversation) tant que le service de diffusion ne l'a pas converti
+// en vrai message au moment voulu (voir scheduledMessages.service.js)
+exports.scheduleMessage = async (req, res) => {
+  try {
+    const { text, groupId, scheduledFor } = req.body;
+    const { id: receiverId } = req.params;
+    const senderId = req.user._id;
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({ message: "Le message ne peut pas être vide." });
+    }
+    if (!scheduledFor) {
+      return res.status(400).json({ message: "Date d'envoi manquante." });
+    }
+    const scheduledDate = new Date(scheduledFor);
+    if (Number.isNaN(scheduledDate.getTime()) || scheduledDate <= new Date()) {
+      return res.status(400).json({ message: "La date doit être dans le futur." });
+    }
+
+    const scheduled = await ScheduledMessage.create({
+      sender: senderId,
+      receiver: groupId ? null : receiverId,
+      group: groupId || null,
+      text: text.trim(),
+      scheduledFor: scheduledDate,
+    });
+
+    res.status(201).json(scheduled);
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de la programmation d'un message");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Liste tous les messages programmés en attente de l'utilisateur connecté,
+// toutes conversations confondues, triés par date d'envoi la plus proche
+exports.getScheduledMessages = async (req, res) => {
+  try {
+    const scheduled = await ScheduledMessage.find({ sender: req.user._id })
+      .sort({ scheduledFor: 1 })
+      .populate("receiver", "username avatar")
+      .populate("group", "name");
+
+    res.status(200).json({ scheduled });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de la récupération des messages programmés");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Annule un message programmé avant son envoi (réservé à son propre expéditeur)
+exports.cancelScheduledMessage = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const scheduled = await ScheduledMessage.findById(id);
+
+    if (!scheduled) {
+      return res.status(404).json({ message: "Message programmé introuvable." });
+    }
+    if (scheduled.sender.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Action non autorisée." });
+    }
+
+    await scheduled.deleteOne();
+
+    res.status(200).json({ message: "Message programmé annulé." });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de l'annulation d'un message programmé");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };

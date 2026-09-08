@@ -28,7 +28,10 @@ const {
     editMessage,
     reactToMessage,
     searchMessages,
-    searchAllConversations
+    searchAllConversations,
+    scheduleMessage,
+    getScheduledMessages,
+    cancelScheduledMessage
 } = require('../controllers/message.controller');
 
 // Limiteur anti-spam sur l'envoi de messages : 30 messages maximum par minute
@@ -118,6 +121,7 @@ router.get('/:id', protect, getMessages);
 router.get('/around-date/:id', protect, getMessagesAroundDate);
 router.get('/search/:id', protect, searchMessages);//
 router.get('/search-all/global', protect, searchAllConversations);
+router.get('/scheduled/mine', protect, getScheduledMessages);
 router.post(
   '/send/:id',
   protect,
@@ -127,8 +131,10 @@ router.post(
   validate,
   sendMessage,
 );
+router.post('/schedule/:id', protect, sendMessageLimiter, scheduleMessage);
 router.delete('/:id', protect, deleteMessage);
 router.delete('/conversation/:id', protect, deleteConversation);
+router.delete('/scheduled/:id', protect, cancelScheduledMessage);
 router.put('/read/:id', protect, markMessagesAsRead);
 router.put('/:id', protect, editMessageValidation, validate, editMessage);
 router.put('/react/:id', protect, reactValidation, validate, reactToMessage);
