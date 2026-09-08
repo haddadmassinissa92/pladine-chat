@@ -9,6 +9,7 @@ const Message = require("../models/message.model");
 const User = require("../models/user.model");
 const Group = require("../models/group.model");
 const ScheduledMessage = require("../models/scheduledMessage.model");
+const { isUserInDoNotDisturb } = require("../doNotDisturb.util");
 const logger = require("../logger");
 
 // Récupère l'historique des messages entre l'utilisateur connecté et un autre utilisateur
@@ -293,7 +294,7 @@ exports.sendMessage = async (req, res) => {
     if (!groupId) {
       const [sender, receiver] = await Promise.all([
         User.findById(senderId).select("blockedUsers"),
-        User.findById(receiverId).select("blockedUsers mutedConversations"),
+        User.findById(receiverId).select("blockedUsers mutedConversations doNotDisturb"),
       ]);
       receiverMutedConversations = receiver?.mutedConversations || [];
 
@@ -422,11 +423,15 @@ exports.sendMessage = async (req, res) => {
       } else {
         // Préférences de notification de tous les membres, récupérées en une
         // seule requête, pour savoir qui a coupé les notifications de ce groupe
+        // (ou qui est actuellement en mode "ne pas déranger")
         const memberDocs = await User.find({
           _id: { $in: group.members },
-        }).select("mutedConversations");
+        }).select("mutedConversations doNotDisturb");
         const mutedByMemberId = new Map(
           memberDocs.map((u) => [u._id.toString(), u.mutedConversations || []]),
+        );
+        const memberDocById = new Map(
+          memberDocs.map((u) => [u._id.toString(), u]),
         );
 
         group.members.forEach((memberId) => {
@@ -439,11 +444,13 @@ exports.sendMessage = async (req, res) => {
 
           // Notification push, en plus du socket : arrive même si l'app
           // n'est pas ouverte (onglet fermé, application en arrière-plan).
-          // Sautée si ce membre a coupé les notifications de ce groupe.
+          // Sautée si ce membre a coupé les notifications de ce groupe, ou
+          // s'il est actuellement en mode "ne pas déranger"
           const isMutedByMember = (mutedByMemberId.get(memberIdStr) || []).includes(
             group._id.toString(),
           );
-          if (!isMutedByMember) {
+          const isInDoNotDisturb = isUserInDoNotDisturb(memberDocById.get(memberIdStr));
+          if (!isMutedByMember && !isInDoNotDisturb) {
             sendPushToUser(memberId, {
               title: group.name,
               body: `${req.user.username} : ${text?.trim() || "📎 Pièce jointe"}`,
@@ -459,9 +466,10 @@ exports.sendMessage = async (req, res) => {
       }
 
       // Notification push pour le destinataire, en plus du socket — sautée
-      // s'il a coupé les notifications de cette conversation
+      // s'il a coupé les notifications de cette conversation, ou s'il est
+      // actuellement en mode "ne pas déranger"
       const isMutedByReceiver = receiverMutedConversations.includes(senderId.toString());
-      if (!isMutedByReceiver) {
+      if (!isMutedByReceiver && !isUserInDoNotDisturb(receiver)) {
         sendPushToUser(receiverId, {
           title: req.user.username,
           body: text?.trim() || "📎 Pièce jointe",

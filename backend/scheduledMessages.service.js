@@ -10,6 +10,7 @@ const Message = require("./models/message.model");
 const User = require("./models/user.model");
 const Group = require("./models/group.model");
 const ScheduledMessage = require("./models/scheduledMessage.model");
+const { isUserInDoNotDisturb } = require("./doNotDisturb.util");
 const logger = require("./logger");
 
 const CHECK_INTERVAL_MS = 20 * 1000; // vérifie toutes les 20 secondes
@@ -35,11 +36,12 @@ async function deliverScheduledMessage(scheduled, { getReceiverSocketId, io, sen
 
     const senderUsername = newMessage.sender.username;
     const memberDocs = await User.find({ _id: { $in: group.members } }).select(
-      "mutedConversations",
+      "mutedConversations doNotDisturb",
     );
     const mutedByMemberId = new Map(
       memberDocs.map((u) => [u._id.toString(), u.mutedConversations || []]),
     );
+    const memberDocById = new Map(memberDocs.map((u) => [u._id.toString(), u]));
 
     group.members.forEach((memberId) => {
       if (memberId.toString() === scheduled.sender.toString()) return;
@@ -51,7 +53,8 @@ async function deliverScheduledMessage(scheduled, { getReceiverSocketId, io, sen
       const isMutedByMember = (mutedByMemberId.get(memberIdStr) || []).includes(
         group._id.toString(),
       );
-      if (!isMutedByMember) {
+      const isInDoNotDisturb = isUserInDoNotDisturb(memberDocById.get(memberIdStr));
+      if (!isMutedByMember && !isInDoNotDisturb) {
         sendPushToUser(memberId, {
           title: group.name,
           body: `${senderUsername} : ${scheduled.text}`,
@@ -62,7 +65,7 @@ async function deliverScheduledMessage(scheduled, { getReceiverSocketId, io, sen
   } else {
     const [sender, receiver] = await Promise.all([
       User.findById(scheduled.sender).select("blockedUsers username"),
-      User.findById(scheduled.receiver).select("blockedUsers mutedConversations"),
+      User.findById(scheduled.receiver).select("blockedUsers mutedConversations doNotDisturb"),
     ]);
     if (!sender || !receiver) return; // compte supprimé depuis
 
@@ -88,7 +91,7 @@ async function deliverScheduledMessage(scheduled, { getReceiverSocketId, io, sen
     const isMutedByReceiver = (receiver.mutedConversations || []).includes(
       scheduled.sender.toString(),
     );
-    if (!isMutedByReceiver) {
+    if (!isMutedByReceiver && !isUserInDoNotDisturb(receiver)) {
       sendPushToUser(scheduled.receiver, {
         title: sender.username,
         body: scheduled.text,

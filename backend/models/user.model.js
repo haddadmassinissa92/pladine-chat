@@ -96,6 +96,32 @@ const userSchema = new mongoose.Schema(
       },
     ],
 
+    // Mode "ne pas déranger" : coupe automatiquement toutes les
+    // notifications (push et son) sur une plage horaire donnée, sans
+    // avoir à couper chaque conversation une par une. Les heures sont
+    // au format "HH:mm", dans le fuseau horaire de l'utilisateur
+    // (timezoneOffsetMinutes = new Date().getTimezoneOffset() capté au
+    // moment de l'activation, pour que le serveur puisse comparer
+    // correctement même s'il tourne lui-même dans un autre fuseau).
+    doNotDisturb: {
+      enabled: {
+        type: Boolean,
+        default: false,
+      },
+      start: {
+        type: String,
+        default: "22:00",
+      },
+      end: {
+        type: String,
+        default: "07:00",
+      },
+      timezoneOffsetMinutes: {
+        type: Number,
+        default: 0,
+      },
+    },
+
     // Demandes de contact reçues, en attente d'acceptation ou de refus
     // (l'ajout d'un contact n'est donc plus instantané : il faut que
     // la personne accepte pour devenir contact mutuel des deux côtés)
