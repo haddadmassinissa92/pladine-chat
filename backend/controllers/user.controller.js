@@ -730,18 +730,14 @@ exports.exportUserData = async (req, res) => {
 };
 
 // Active/désactive le mode "ne pas déranger" et met à jour sa plage horaire
+// Active le mode "ne pas déranger" jusqu'à une date/heure précise (envoyer
+// until: null pour le désactiver manuellement avant l'échéance)
 exports.updateDoNotDisturb = async (req, res) => {
   try {
-    const { enabled, start, end, timezoneOffsetMinutes } = req.body;
+    const { until } = req.body;
     const user = await User.findById(req.user._id);
 
-    if (typeof enabled === "boolean") user.doNotDisturb.enabled = enabled;
-    if (typeof start === "string") user.doNotDisturb.start = start;
-    if (typeof end === "string") user.doNotDisturb.end = end;
-    if (typeof timezoneOffsetMinutes === "number") {
-      user.doNotDisturb.timezoneOffsetMinutes = timezoneOffsetMinutes;
-    }
-
+    user.doNotDisturb.until = until ? new Date(until) : null;
     await user.save();
 
     res.status(200).json({ doNotDisturb: user.doNotDisturb });
