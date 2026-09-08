@@ -9,6 +9,7 @@ const bcrypt = require("bcryptjs");
 // la gestion des comptes et de l'historique des discussions
 const User = require("../models/user.model");
 const Message = require("../models/message.model");
+const Group = require("../models/group.model");
 const PushSubscription = require("../models/pushSubscription.model");
 const logger = require("../logger");
 const { getReceiverSocketId, io, broadcastOnlineUsers } = require("../socket");
@@ -656,6 +657,74 @@ exports.toggleHideOnlineStatus = async (req, res) => {
     res.status(200).json({ hidden: !alreadyHidden });
   } catch (error) {
     logger.error({ err: error }, "Erreur lors du changement de confidentialité du statut en ligne");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Rassemble toutes les données du compte connecté (profil, contacts, groupes,
+// tous les messages échangés) en un seul objet, pour un export/sauvegarde
+// complète que l'utilisateur peut télécharger et garder de son côté
+exports.exportUserData = async (req, res) => {
+  try {
+    const myId = req.user._id;
+
+    const user = await User.findById(myId)
+      .select("-password")
+      .populate("contacts", "username email");
+    if (!user) {
+      return res.status(404).json({ message: "Utilisateur introuvable." });
+    }
+
+    const groups = await Group.find({ members: myId })
+      .populate("members", "username")
+      .select("name members createdAt");
+
+    const groupIds = groups.map((g) => g._id);
+
+    const messages = await Message.find({
+      $or: [
+        { sender: myId, receiver: { $ne: null } },
+        { receiver: myId },
+        { group: { $in: groupIds }, pendingApproval: { $ne: true } },
+      ],
+    })
+      .sort({ createdAt: 1 })
+      .populate("sender", "username")
+      .populate("receiver", "username")
+      .populate("group", "name")
+      .select("text image audio sender receiver group createdAt");
+
+    res.status(200).json({
+      exportedAt: new Date().toISOString(),
+      profile: {
+        username: user.username,
+        email: user.email,
+        createdAt: user.createdAt,
+      },
+      contacts: user.contacts.map((c) => ({
+        username: c.username,
+        email: c.email,
+      })),
+      groups: groups.map((g) => ({
+        name: g.name,
+        createdAt: g.createdAt,
+        members: g.members.map((m) => m.username),
+      })),
+      messages: messages.map((m) => ({
+        conversation: m.group
+          ? `Groupe : ${m.group.name}`
+          : m.sender?._id?.toString() === myId.toString()
+            ? m.receiver?.username
+            : m.sender?.username,
+        sender: m.sender?.username || "",
+        text: m.text || "",
+        image: m.image || "",
+        audio: m.audio || "",
+        date: m.createdAt,
+      })),
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors de l'export des données du compte");
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
