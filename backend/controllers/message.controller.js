@@ -211,11 +211,15 @@ exports.searchAllConversations = async (req, res) => {
     // Filtre par type de contenu : ne garde que les messages ayant le
     // champ correspondant renseigné (image, audio, ou un lien détecté)
     if (type === "images") {
-      filter.image = { $ne: "" };
+      // $exists en plus de $ne : d'anciens messages créés avant l'ajout de
+      // ce champ ne l'ont pas du tout en base, et Mongo considère "champ
+      // absent" comme différent de "", donc ils passeraient sinon le filtre
+      // par erreur
+      filter.image = { $exists: true, $nin: ["", null] };
     } else if (type === "audios") {
-      filter.audio = { $ne: "" };
+      filter.audio = { $exists: true, $nin: ["", null] };
     } else if (type === "links") {
-      filter.linkPreview = { $ne: null };
+      filter.linkPreview = { $exists: true, $ne: null };
     }
 
     const results = await Message.find(filter)
