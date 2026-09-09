@@ -504,10 +504,10 @@ exports.markMessagesAsRead = async (req, res) => {
         {
           group: id,
           sender: { $ne: myId },
-          status: { $ne: "read" },
+          readBy: { $ne: myId },
           pendingApproval: { $ne: true },
         },
-        { status: "read", readAt: new Date() },
+        { $addToSet: { readBy: myId }, status: "read", readAt: new Date() },
       );
 
       const group = await Group.findById(id);

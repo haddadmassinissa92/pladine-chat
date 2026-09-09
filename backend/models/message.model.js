@@ -56,6 +56,17 @@ const messageSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Liste des membres du groupe ayant vu ce message précis (contrairement
+    // à "status"/"readAt" ci-dessus, qui ne retiennent qu'un lu générique ;
+    // utilisé uniquement pour les messages de groupe, pour afficher "Vu par
+    // Untel, Untel")
+    readBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
     // Liste des réactions et émojis laissés par les utilisateurs.
     reactions: [
       {
