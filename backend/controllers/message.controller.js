@@ -183,10 +183,13 @@ exports.searchMessages = async (req, res) => {
 // à searchMessages ci-dessus qui se limite à une seule conversation
 exports.searchAllConversations = async (req, res) => {
   try {
-    const { q } = req.query;
+    const { q, type } = req.query;
     const myId = req.user._id;
 
-    if (!q || !q.trim()) {
+    // Sans mot-clé, on n'accepte de continuer que si un filtre par type de
+    // contenu est demandé (ex: "toutes mes photos"), sinon rien à chercher
+    const hasQuery = q && q.trim();
+    if (!hasQuery && !type) {
       return res.status(200).json({ results: [] });
     }
 
@@ -199,13 +202,26 @@ exports.searchAllConversations = async (req, res) => {
         { receiver: myId },
         { group: { $in: groupIds }, pendingApproval: { $ne: true } },
       ],
-      text: { $regex: escapeRegex(q.trim()), $options: "i" },
     };
+
+    if (hasQuery) {
+      filter.text = { $regex: escapeRegex(q.trim()), $options: "i" };
+    }
+
+    // Filtre par type de contenu : ne garde que les messages ayant le
+    // champ correspondant renseigné (image, audio, ou un lien détecté)
+    if (type === "images") {
+      filter.image = { $ne: "" };
+    } else if (type === "audios") {
+      filter.audio = { $ne: "" };
+    } else if (type === "links") {
+      filter.linkPreview = { $ne: null };
+    }
 
     const results = await Message.find(filter)
       .sort({ createdAt: -1 })
       .limit(SEARCH_RESULTS_LIMIT)
-      .select("_id text sender receiver group createdAt")
+      .select("_id text image audio linkPreview sender receiver group createdAt")
       .populate("sender", "username avatar")
       .populate("receiver", "username avatar")
       .populate("group", "name");
