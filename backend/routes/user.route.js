@@ -26,6 +26,7 @@ const {
   toggleHideOnlineStatus,
   exportUserData,
   updateDoNotDisturb,
+  getMyStats,
   discoverUsers,
   addContact,
   removeContact,
@@ -163,6 +164,7 @@ router.put('/mute/:id', protect, toggleMuteConversation);
 router.put('/hide-online-status/:id', protect, blockUserValidation, validate, toggleHideOnlineStatus);
 router.get('/export-data', protect, exportUserData);
 router.put('/do-not-disturb', protect, updateDoNotDisturb);
+router.get('/my-stats', protect, getMyStats);
 
 // exporter le router
 module.exports = router;

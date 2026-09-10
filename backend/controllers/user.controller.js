@@ -746,3 +746,90 @@ exports.updateDoNotDisturb = async (req, res) => {
     res.status(500).json({ message: "Erreur serveur." });
   }
 };
+
+// Calcule quelques statistiques personnelles amusantes sur l'usage du
+// compte : nombre total de messages envoyés, contact le plus actif, nombre
+// de photos/audios envoyés, ancienneté du compte, et groupe le plus actif
+exports.getMyStats = async (req, res) => {
+  try {
+    const myId = req.user._id;
+
+    const [totalSent, imagesSent, audiosSent] = await Promise.all([
+      Message.countDocuments({ sender: myId }),
+      Message.countDocuments({ sender: myId, image: { $exists: true, $nin: ["", null] } }),
+      Message.countDocuments({ sender: myId, audio: { $exists: true, $nin: ["", null] } }),
+    ]);
+
+    // Contact le plus actif : celui avec qui le plus de messages ont été
+    // échangés au total (envoyés ou reçus), toutes conversations privées confondues
+    const mostActiveContactAgg = await Message.aggregate([
+      {
+        $match: {
+          receiver: { $ne: null },
+          $or: [{ sender: myId }, { receiver: myId }],
+        },
+      },
+      {
+        $project: {
+          otherUser: {
+            $cond: [{ $eq: ["$sender", myId] }, "$receiver", "$sender"],
+          },
+        },
+      },
+      { $group: { _id: "$otherUser", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 1 },
+    ]);
+
+    let mostActiveContact = null;
+    if (mostActiveContactAgg.length > 0) {
+      const contactUser = await User.findById(mostActiveContactAgg[0]._id).select("username avatar");
+      if (contactUser) {
+        mostActiveContact = {
+          username: contactUser.username,
+          avatar: contactUser.avatar,
+          messageCount: mostActiveContactAgg[0].count,
+        };
+      }
+    }
+
+    // Groupe le plus actif parmi ceux dont l'utilisateur est membre : celui
+    // qui a reçu le plus de messages au total, tous membres confondus
+    const myGroups = await Group.find({ members: myId }).select("_id name");
+    const myGroupIds = myGroups.map((g) => g._id);
+
+    let mostActiveGroup = null;
+    if (myGroupIds.length > 0) {
+      const mostActiveGroupAgg = await Message.aggregate([
+        { $match: { group: { $in: myGroupIds }, pendingApproval: { $ne: true } } },
+        { $group: { _id: "$group", count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 1 },
+      ]);
+      if (mostActiveGroupAgg.length > 0) {
+        const group = myGroups.find(
+          (g) => g._id.toString() === mostActiveGroupAgg[0]._id.toString(),
+        );
+        if (group) {
+          mostActiveGroup = { name: group.name, messageCount: mostActiveGroupAgg[0].count };
+        }
+      }
+    }
+
+    const daysSinceCreation = Math.floor(
+      (Date.now() - new Date(req.user.createdAt).getTime()) / (1000 * 60 * 60 * 24),
+    );
+
+    res.status(200).json({
+      totalSent,
+      imagesSent,
+      audiosSent,
+      daysSinceCreation,
+      mostActiveContact,
+      mostActiveGroup,
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Erreur lors du calcul des statistiques personnelles");
+    res.status(500).json({ message: "Erreur serveur." });
+  }
+};
