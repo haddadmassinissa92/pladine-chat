@@ -643,6 +643,8 @@ exports.editMessage = async (req, res) => {
       return res.status(403).json({ message: "Action non autorisée." });
     }
 
+    // Conserve l'ancienne version dans l'historique avant de l'écraser
+    message.editHistory.push({ text: message.text, editedAt: new Date() });
     message.text = text;
     message.edited = true;
     await message.save();

@@ -99,6 +99,16 @@ const messageSchema = new mongoose.Schema(
       default: false,
     },
 
+    // Historique des versions précédentes du texte, avant chaque
+    // modification (la version actuelle, elle, reste dans le champ "text"
+    // ci-dessus) — permet d'afficher "voir les modifications précédentes"
+    editHistory: [
+      {
+        text: String,
+        editedAt: Date,
+      },
+    ],
+
     // Référence au message d'origine en cas de réponse ciblée.
     replyTo: {
       type: mongoose.Schema.Types.ObjectId,
