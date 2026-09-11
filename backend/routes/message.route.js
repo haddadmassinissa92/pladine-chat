@@ -31,7 +31,8 @@ const {
     searchAllConversations,
     scheduleMessage,
     getScheduledMessages,
-    cancelScheduledMessage
+    cancelScheduledMessage,
+    getLinkPreview
 } = require('../controllers/message.controller');
 
 // Limiteur anti-spam sur l'envoi de messages : 30 messages maximum par minute
@@ -46,6 +47,21 @@ const sendMessageLimiter = rateLimit({
   keyGenerator: (req) => req.user._id.toString(),
   message: {
     message: 'Tu envoies des messages trop rapidement. Ralentis un peu.',
+  },
+});
+
+// Limiteur dédié à l'aperçu de lien en direct pendant la frappe : plus
+// généreux que l'envoi de message (une frappe déclenche potentiellement
+// plusieurs appels), mais empêche quand même un usage abusif de ce endpoint
+// public qui ne crée aucun message
+const linkPreviewLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user._id.toString(),
+  message: {
+    message: 'Trop de requêtes. Ralentis un peu.',
   },
 });
 
@@ -121,6 +137,7 @@ router.get('/:id', protect, getMessages);
 router.get('/around-date/:id', protect, getMessagesAroundDate);
 router.get('/search/:id', protect, searchMessages);//
 router.get('/search-all/global', protect, searchAllConversations);
+router.get('/link-preview', protect, linkPreviewLimiter, getLinkPreview);
 router.get('/scheduled/mine', protect, getScheduledMessages);
 router.post(
   '/send/:id',

@@ -272,27 +272,34 @@ const extractImageUrl = (ogImageField) => {
   return ogImageField.url || "";
 };
 
+// Fait la requête réelle vers l'URL et en extrait titre/description/image,
+// sans toucher à aucun message — réutilisée à la fois pour l'aperçu envoyé
+// automatiquement après l'envoi d'un message (fetchAndAttachLinkPreview
+// ci-dessous), et pour l'aperçu affiché en direct pendant la frappe, avant
+// même d'envoyer (voir exports.getLinkPreview plus bas)
+const scrapeLinkPreview = async (url) => {
+  // Délai généreux (20s) plutôt que le défaut : certains sites (ex. un
+  // backend hébergé sur Render en offre gratuite) peuvent être en veille
+  // et mettre du temps à répondre à la toute première requête ("cold start")
+  const { result } = await ogs({ url, timeout: 20000 });
+
+  const linkPreview = {
+    url,
+    title: result.ogTitle || result.twitterTitle || "",
+    description: result.ogDescription || result.twitterDescription || "",
+    image: extractImageUrl(result.ogImage) || extractImageUrl(result.twitterImage),
+  };
+
+  if (!linkPreview.title && !linkPreview.description && !linkPreview.image) {
+    return null;
+  }
+  return linkPreview;
+};
+
 const fetchAndAttachLinkPreview = async (message, url) => {
   try {
-    // Délai généreux (20s) plutôt que le défaut : certains sites (ex. un
-    // backend hébergé sur Render en offre gratuite) peuvent être en veille
-    // et mettre du temps à répondre à la toute première requête ("cold
-    // start"). Comme cette récupération se fait déjà en arrière-plan sans
-    // bloquer l'envoi du message, un délai plus long ne coûte rien niveau
-    // ressenti utilisateur.
-    const { result } = await ogs({ url, timeout: 20000 });
-
-    const linkPreview = {
-      url,
-      title: result.ogTitle || result.twitterTitle || "",
-      description: result.ogDescription || result.twitterDescription || "",
-      image: extractImageUrl(result.ogImage) || extractImageUrl(result.twitterImage),
-    };
-
-    // Si on n'a rien trouvé d'exploitable, on n'affiche pas d'aperçu
-    if (!linkPreview.title && !linkPreview.description && !linkPreview.image) {
-      return;
-    }
+    const linkPreview = await scrapeLinkPreview(url);
+    if (!linkPreview) return;
 
     message.linkPreview = linkPreview;
     await message.save();
@@ -803,5 +810,24 @@ exports.cancelScheduledMessage = async (req, res) => {
   } catch (error) {
     logger.error({ err: error }, "Erreur lors de l'annulation d'un message programmé");
     res.status(500).json({ message: "Erreur serveur." });
+  }
+};
+
+// Récupère l'aperçu (titre, description, image) d'une URL à la volée, sans
+// l'attacher à aucun message — utilisé pour afficher l'aperçu en direct
+// pendant que l'utilisateur tape, avant même d'avoir envoyé le message
+exports.getLinkPreview = async (req, res) => {
+  try {
+    const { url } = req.query;
+    if (!url) {
+      return res.status(400).json({ message: "URL manquante." });
+    }
+
+    const linkPreview = await scrapeLinkPreview(url);
+    res.status(200).json({ linkPreview });
+  } catch (error) {
+    // Un lien invalide ou indisponible n'est pas une vraie erreur serveur :
+    // on répond simplement qu'il n'y a pas d'aperçu, sans bruit dans les logs
+    res.status(200).json({ linkPreview: null });
   }
 };
