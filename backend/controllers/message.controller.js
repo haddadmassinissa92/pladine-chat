@@ -265,7 +265,13 @@ const extractFirstUrl = (text) => {
 // avant que l'aperçu ne soit disponible, pour ne pas ralentir l'envoi.
 const fetchAndAttachLinkPreview = async (message, url) => {
   try {
-    const { result } = await ogs({ url, timeout: 5000 });
+    // Délai généreux (20s) plutôt que le défaut : certains sites (ex. un
+    // backend hébergé sur Render en offre gratuite) peuvent être en veille
+    // et mettre du temps à répondre à la toute première requête ("cold
+    // start"). Comme cette récupération se fait déjà en arrière-plan sans
+    // bloquer l'envoi du message, un délai plus long ne coûte rien niveau
+    // ressenti utilisateur.
+    const { result } = await ogs({ url, timeout: 20000 });
 
     const linkPreview = {
       url,
