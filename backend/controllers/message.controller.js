@@ -317,12 +317,14 @@ exports.sendMessage = async (req, res) => {
     // ses préférences de notification (mutedConversations), réutilisées plus
     // bas au moment d'envoyer (ou non) la notification push.
     let receiverMutedConversations = [];
+    let receiverDoc = null;
     if (!groupId) {
       const [sender, receiver] = await Promise.all([
         User.findById(senderId).select("blockedUsers"),
         User.findById(receiverId).select("blockedUsers mutedConversations doNotDisturb"),
       ]);
       receiverMutedConversations = receiver?.mutedConversations || [];
+      receiverDoc = receiver;
 
       const senderBlockedReceiver = sender?.blockedUsers.some(
         (u) => u.toString() === receiverId,
@@ -495,7 +497,7 @@ exports.sendMessage = async (req, res) => {
       // s'il a coupé les notifications de cette conversation, ou s'il est
       // actuellement en mode "ne pas déranger"
       const isMutedByReceiver = receiverMutedConversations.includes(senderId.toString());
-      if (!isMutedByReceiver && !isUserInDoNotDisturb(receiver)) {
+      if (!isMutedByReceiver && !isUserInDoNotDisturb(receiverDoc)) {
         sendPushToUser(receiverId, {
           title: req.user.username,
           body: text?.trim() || "📎 Pièce jointe",
