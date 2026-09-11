@@ -133,11 +133,11 @@ const reactValidation = [
 
 // Enregistrement des points d'accès sécurisés encadrant 
 // le cycle de vie complet, l'interactivité et l'état des messages échangés
+router.get('/link-preview', protect, linkPreviewLimiter, getLinkPreview);
 router.get('/:id', protect, getMessages);
 router.get('/around-date/:id', protect, getMessagesAroundDate);
 router.get('/search/:id', protect, searchMessages);//
 router.get('/search-all/global', protect, searchAllConversations);
-router.get('/link-preview', protect, linkPreviewLimiter, getLinkPreview);
 router.get('/scheduled/mine', protect, getScheduledMessages);
 router.post(
   '/send/:id',
