@@ -263,6 +263,15 @@ const extractFirstUrl = (text) => {
 // correspondant en base et diffuse la mise à jour en temps réel. Cette fonction est
 // volontairement asynchrone et non bloquante : le message est déjà envoyé et affiché
 // avant que l'aperçu ne soit disponible, pour ne pas ralentir l'envoi.
+// open-graph-scraper renvoie parfois "ogImage" (et "twitterImage") comme un
+// tableau d'images, parfois comme un objet unique selon les pages/versions —
+// cette fonction gère les deux cas plutôt que de supposer un tableau
+const extractImageUrl = (ogImageField) => {
+  if (!ogImageField) return "";
+  if (Array.isArray(ogImageField)) return ogImageField[0]?.url || "";
+  return ogImageField.url || "";
+};
+
 const fetchAndAttachLinkPreview = async (message, url) => {
   try {
     // Délai généreux (20s) plutôt que le défaut : certains sites (ex. un
@@ -277,7 +286,7 @@ const fetchAndAttachLinkPreview = async (message, url) => {
       url,
       title: result.ogTitle || result.twitterTitle || "",
       description: result.ogDescription || result.twitterDescription || "",
-      image: result.ogImage?.[0]?.url || result.twitterImage?.[0]?.url || "",
+      image: extractImageUrl(result.ogImage) || extractImageUrl(result.twitterImage),
     };
 
     // Si on n'a rien trouvé d'exploitable, on n'affiche pas d'aperçu
